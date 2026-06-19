@@ -17,7 +17,7 @@ export async function composeFromPrompt(prompt, options = {}) {
 IMPORTANT — You MUST follow the HyperFrames pattern EXACTLY:
 
 ## Structure
-- Root: <div id="root" data-composition-id="main" data-start="0" data-width="1920" data-height="1080" data-duration="N" style="position:relative; width:1920px; height:1080px; overflow:hidden; background:#...;">
+- Root: <div id="root" data-composition-id="main" data-start="0" data-width="1280" data-height="720" data-duration="N" style="position:relative; width:1280px; height:720px; overflow:hidden; background:#...;">
 - Every SCENE is a DIRECT child of #root
 \- Each scene is a <section id="scene-0" class="clip" data-start="0" data-duration="M" data-track-index="1" style="position:absolute; inset:0; ...">
 - Nested inside this section goes the scene's content using whatever layout makes sense (flexbox, grid, text, images, etc.)
@@ -34,7 +34,7 @@ IMPORTANT — You MUST follow the HyperFrames pattern EXACTLY:
 ## Visual Style
 - Dark background with accent color
 - Professional typography matching the subject
-- Font sizes: headlines 60px+, body 24px+, labels 18px+
+- Font sizes: headlines 42px+, body 18px+, labels 14px+
 - Use ONLY real font names: Arial, Georgia, Impact, Tahoma, Times New Roman, Trebuchet MS, Verdana, Courier New, Comic Sans MS
 - NEVER use CSS variables like var(--font-body) or var(--primary-font) in font-family
 - Padding inside scenes: 80px minimum on all sides
@@ -102,9 +102,9 @@ The total duration is EXACTLY ${duration} seconds. If there are multiple scenes,
           /<div[^>]*id="root"[^>]*>/i,
           (match) => {
             let fixed = match;
-            if (!fixed.includes('data-width=')) fixed = fixed.replace('id="root"', 'id="root" data-width="1920" data-height="1080"');
+            if (!fixed.includes('data-width=')) fixed = fixed.replace('id="root"', 'id="root" data-width="1280" data-height="720"');
             if (!fixed.includes('data-composition-id=')) fixed = fixed.replace('data-width=', 'data-composition-id="main" data-width=');
-            if (!fixed.includes('data-duration=')) fixed = fixed.replace(/data-height="1080"/, `data-height="1080" data-duration="${duration}"`);
+            if (!fixed.includes('data-duration=')) fixed = fixed.replace(/data-height="720"/, `data-height="720" data-duration="${duration}"`);
             return fixed;
           }
         );
