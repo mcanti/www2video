@@ -52,6 +52,7 @@ function saveToHistory(v) {
     audioPrompt: v.audioPrompt || '',
     useAudio: v.useAudio || false,
     useSubtitles: v.useSubtitles || false,
+    voiceName: v.voiceName || 'Kore',
     useWebsite: v.useWebsite || false,
     sourceUrl: v.sourceUrl || '',
     created_at: v.created_at || new Date().toISOString(),
@@ -59,7 +60,40 @@ function saveToHistory(v) {
   localStorage.setItem(LS_KEY, JSON.stringify(list.slice(0, 20)));
 }
 
-// Debug mode defaults for lumi.bot product launch
+const GEMINI_VOICES = [
+  // Feminine
+  { name: 'Kore', label: 'Female / Firm, strong, authoritative yet approachable' },
+  { name: 'Aoede', label: 'Female / Breezy, light and airy, melodic' },
+  { name: 'Autonoe', label: 'Female / Bright, clear and optimistic' },
+  { name: 'Callirrhoe', label: 'Female / Easy-going, relaxed and natural' },
+  { name: 'Despina', label: 'Female / Smooth, polished and flowing' },
+  { name: 'Erinome', label: 'Female / Clear, crisp and precise' },
+  { name: 'Gacrux', label: 'Female / Mature, warm and seasoned' },
+  { name: 'Laomedeia', label: 'Female / Upbeat, energetic and lively' },
+  { name: 'Leda', label: 'Female / Youthful, fresh and friendly' },
+  { name: 'Pulcherrima', label: 'Female / Forward, direct and confident' },
+  { name: 'Sadachbia', label: 'Female / Lively, spirited and bright' },
+  { name: 'Schedar', label: 'Female / Even, balanced and steady' },
+  { name: 'Sulafat', label: 'Female / Warm, gentle and reassuring' },
+  { name: 'Umbriel', label: 'Female / Easy-going, casual and natural' },
+  { name: 'Vindemiatrix', label: 'Female / Gentle, soft and calming' },
+  { name: 'Zephyr', label: 'Female / Bright, clear and fresh' },
+  { name: 'Achernar', label: 'Female / Soft, gentle and soothing' },
+  // Masculine
+  { name: 'Puck', label: 'Male / Upbeat, lively and energetic' },
+  { name: 'Charon', label: 'Male / Informative, calm and professional' },
+  { name: 'Fenrir', label: 'Male / Excitable, dynamic and expressive' },
+  { name: 'Alnilam', label: 'Male / Firm, strong and grounded' },
+  { name: 'Orus', label: 'Male / Firm, solid and confident' },
+  { name: 'Algenib', label: 'Male / Gravelly, rich and textured' },
+  { name: 'Algieba', label: 'Male / Smooth, mellow and flowing' },
+  { name: 'Achird', label: 'Male / Friendly, warm and approachable' },
+  { name: 'Enceladus', label: 'Male / Breathy, intimate and close' },
+  { name: 'Iapetus', label: 'Male / Clear, crisp and articulate' },
+  { name: 'Rasalgethi', label: 'Male / Informative, educational and precise' },
+  { name: 'Sadaltager', label: 'Male / Knowledgeable, authoritative yet approachable' },
+  { name: 'Zubenelgenubi', label: 'Male / Casual, laid-back and conversational' },
+];
 const LUMI_DEFAULTS = {
   prompt: `Product launch video for LumiBot - an AI assistant bot that helps teams automate workflows and boost productivity. 
 
@@ -85,6 +119,7 @@ export default function Generator() {
   const [useAudio, setUseAudio] = useState(false);
   const [useSubtitles, setUseSubtitles] = useState(false);
   const [audioPrompt, setAudioPrompt] = useState('');
+  const [voiceName, setVoiceName] = useState('Kore');
   const [videoId, setVideoId] = useState(null);
   const [mode, setMode] = useState('idle'); // idle | generating | preview | error
   const [history, setHistory] = useState(loadHistory);
@@ -140,6 +175,7 @@ export default function Generator() {
     setUseAudio(v.useAudio || false);
     setUseSubtitles(v.useSubtitles || false);
     setAudioPrompt(v.audioPrompt || '');
+    setVoiceName(v.voiceName || 'Kore');
     setUseWebsite(v.useWebsite || false);
     setUrl(v.sourceUrl || '');
     setHistoryStatus(null);
@@ -147,6 +183,14 @@ export default function Generator() {
       const res = await fetch(`${API}/api/video/${v.id}/status`);
       const data = await res.json();
       setHistoryStatus(data);
+      // Restore auto-generated narration text from server
+      if (data.tts_text) {
+        setUseAudio(true);
+        setAudioPrompt(data.tts_text);
+      }
+      if (data.tts_voice) {
+        setVoiceName(data.tts_voice);
+      }
     } catch {}
   };
 
@@ -158,7 +202,7 @@ export default function Generator() {
     setError('');
     setDebugHtml('');
 
-    const options = { quality: 'draft', duration, width, height, useAudio, useSubtitles };
+    const options = { quality: 'draft', duration, width, height, useAudio, useSubtitles, voiceName };
     if (audioPrompt.trim()) options.audioPrompt = audioPrompt.trim();
     if (useWebsite && url.trim()) options.sourceUrl = url.trim();
     const body = { prompt: text, options };
@@ -175,6 +219,7 @@ export default function Generator() {
       saveToHistory({
         id: data.videoId, prompt: text, status: 'generating',
         duration, width, height, useAudio, useSubtitles, audioPrompt: audioPrompt.trim(),
+        voiceName,
         useWebsite, sourceUrl: url.trim(),
         created_at: new Date().toISOString(),
       });
@@ -415,6 +460,28 @@ export default function Generator() {
                   📝 Subtitles
                 </label>
               </div>
+
+              {/* Voice selector */}
+              {useAudio && (
+                <div style={{ marginTop: 12 }}>
+                  <label style={{ fontWeight: 600, fontSize: 13, display: 'block', marginBottom: 6 }}>
+                    🔊 Voce narator
+                  </label>
+                  <select
+                    value={voiceName}
+                    onChange={e => setVoiceName(e.target.value)}
+                    style={{
+                      width: '100%', background: '#111', border: '1px solid var(--border)',
+                      borderRadius: 8, color: 'var(--text)', padding: '8px 12px', fontSize: 13,
+                      fontFamily: 'inherit', cursor: 'pointer',
+                    }}
+                  >
+                    {GEMINI_VOICES.map(v => (
+                      <option key={v.name} value={v.name}>{v.label}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {/* Generate button */}
               <button

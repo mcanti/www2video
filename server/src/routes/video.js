@@ -46,6 +46,8 @@ async function getDb() {
   // Ensure progress column exists for older DBs
   try { db.run('ALTER TABLE videos ADD COLUMN progress TEXT DEFAULT \'{}\''); } catch {}
   try { db.run('ALTER TABLE videos ADD COLUMN debug_info TEXT DEFAULT \'{}\''); } catch {}
+  try { db.run('ALTER TABLE videos ADD COLUMN tts_text TEXT DEFAULT \'\''); } catch {}
+  try { db.run('ALTER TABLE videos ADD COLUMN tts_voice TEXT DEFAULT \'Kore\''); } catch {}
   return db;
 }
 
@@ -117,12 +119,14 @@ router.post('/generate', async (req, res) => {
     const sourceUrl = options.sourceUrl || '';
     const initialProgress = JSON.stringify({ step: 'queued', message: 'In queue...', pct: 0 });
 
+    const voiceName = options.voiceName || 'Kore';
+
     if (sourceUrl) {
-      db.run(`INSERT INTO videos (id, prompt, quality, status, source_url, progress) VALUES (?, ?, ?, 'generating', ?, ?)`,
-        [videoId, prompt, quality, sourceUrl, initialProgress]);
+      db.run(`INSERT INTO videos (id, prompt, quality, status, source_url, progress, tts_voice) VALUES (?, ?, ?, 'generating', ?, ?, ?)`,
+        [videoId, prompt, quality, sourceUrl, initialProgress, voiceName]);
     } else {
-      db.run(`INSERT INTO videos (id, prompt, quality, status, progress) VALUES (?, ?, ?, 'generating', ?)`,
-        [videoId, prompt, quality, initialProgress]);
+      db.run(`INSERT INTO videos (id, prompt, quality, status, progress, tts_voice) VALUES (?, ?, ?, 'generating', ?, ?)`,
+        [videoId, prompt, quality, initialProgress, voiceName]);
     }
     await saveAndClose(db);
 
@@ -162,6 +166,8 @@ router.get('/:id/status', async (req, res) => {
       progress,
       debugInfo,
       prompt: video.prompt,
+      tts_text: video.tts_text || '',
+      tts_voice: video.tts_voice || 'Kore',
       previewUrl: video.status === 'ready' ? `/api/video/${video.id}/preview` : null,
       downloadUrl: video.status === 'ready' ? `/api/video/${video.id}/download` : null,
       error: video.error,
@@ -328,6 +334,14 @@ async function generateInBackground(videoId, prompt, options) {
         narrationText = result.response.text().trim();
         console.log('[generate] auto-narration:', narrationText.slice(0, 100));
         await updateDebug(videoId, { auto_narration: narrationText });
+        // Save generated text to DB so history can restore it
+        await (async () => {
+          try {
+            const dbN = await getDb();
+            dbN.run('UPDATE videos SET tts_text = ? WHERE id = ?', [narrationText, videoId]);
+            await saveAndClose(dbN);
+          } catch {}
+        })();
         await updateProgress(videoId, 'generating_audio', '🎵 Text audio creat', 34);
       } catch (e) {
         console.error('[generate] auto-narration error:', e.message);
@@ -336,10 +350,16 @@ async function generateInBackground(videoId, prompt, options) {
 
     if (narrationText.trim()) {
       await updateProgress(videoId, 'generating_audio', '🎵 Se generează audio...', 35);
+      // Save narration text to DB for history restore
+      try {
+        const dbN = await getDb();
+        dbN.run('UPDATE videos SET tts_text = ? WHERE id = ?', [narrationText, videoId]);
+        await saveAndClose(dbN);
+      } catch {}
       try {
         const audioDir = path.join(workDir, 'audio');
         await fs.mkdir(audioDir, { recursive: true });
-        const audioResult = await generateTTS(narrationText);
+        const audioResult = await generateTTS(narrationText, options.tts_voice || 'Kore');
         if (audioResult instanceof ArrayBuffer || audioResult instanceof Buffer) {
           ttsPath = path.join(audioDir, 'narration.wav');
           await fs.writeFile(ttsPath, Buffer.from(audioResult));
