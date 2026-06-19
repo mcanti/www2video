@@ -375,15 +375,22 @@ async function generateInBackground(videoId, prompt, options) {
           .map(s => s.trim())
           .filter(s => s.length > 0);
 
-        const durationPerSentence = duration / sentences.length;
+        const totalChars = sentences.reduce((sum, s) => sum + s.length, 0);
         let overlaysHtml = '';
         let gsapAnimations = '';
+        let prevEnd = 0;
+        const timedSentences = []; // { start, end, text }
 
         sentences.forEach((sentence, i) => {
-          const start = i * durationPerSentence;
-          const end = Math.min((i + 1) * durationPerSentence, duration);
+          // Proportional timing: longer sentences get more screen time
+          const ratio = totalChars > 0 ? sentence.length / totalChars : 1 / sentences.length;
+          const sentenceDuration = Math.max(duration * ratio, 0.5);
+          const start = prevEnd;
+          const end = Math.min(start + sentenceDuration, duration);
+          prevEnd = end;
+          timedSentences.push({ start, end, text: sentence });
 
-          overlaysHtml += `<div id="sub-${i}" class="sub-overlay" style="position:absolute;bottom:60px;left:50%;transform:translateX(-50%);color:#fff;font-family:Arial,sans-serif;font-size:28px;font-weight:600;text-align:center;text-shadow:0 2px 8px rgba(0,0,0,0.9);background:rgba(0,0,0,0.55);padding:10px 28px;border-radius:10px;opacity:0;pointer-events:none;z-index:1000;max-width:80%;white-space:nowrap;">${sentence}</div>\n`;
+          overlaysHtml += `<div id="sub-${i}" class="sub-overlay" style="position:absolute;bottom:50px;left:50%;transform:translateX(-50%);color:#fff;font-family:Arial,sans-serif;font-size:22px;font-weight:600;text-align:center;text-shadow:0 2px 6px rgba(0,0,0,0.9);background:rgba(0,0,0,0.6);padding:8px 20px;border-radius:8px;opacity:0;pointer-events:none;z-index:1000;max-width:75%;width:auto;word-wrap:break-word;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.3;">${sentence}</div>\n`;
 
           gsapAnimations += `window.__timelines["main"].to("#sub-${i}", { opacity: 1, duration: 0.2 }, ${start});`;
           gsapAnimations += `window.__timelines["main"].to("#sub-${i}", { opacity: 0, duration: 0.2 }, ${Math.max(0, end - 0.3)});`;
@@ -404,9 +411,7 @@ async function generateInBackground(videoId, prompt, options) {
         );
 
         await fs.writeFile(compositionPath, composition);
-        const vttContent = sentences.map((s, i) => {
-          const start = i * durationPerSentence;
-          const end = Math.min((i + 1) * durationPerSentence, duration);
+        const vttContent = timedSentences.map((ts, i) => {
           const fmt = (secs) => {
             const totalMs = Math.round(secs * 1000);
             const h = Math.floor(totalMs / 3600000);
@@ -415,7 +420,7 @@ async function generateInBackground(videoId, prompt, options) {
             const ms = totalMs % 1000;
             return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
           };
-          return `${i + 1}\n${fmt(start)} --> ${fmt(end)}\n${s}`;
+          return `${i + 1}\n${fmt(ts.start)} --> ${fmt(ts.end)}\n${ts.text}`;
         }).join('\n\n');
         await updateDebug(videoId, { subtitles_vtt: vttContent.substring(0, 500), subtitle_count: sentences.length });
         console.log(`[generate] ${sentences.length} subtitle overlays injected`);

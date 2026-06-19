@@ -391,7 +391,7 @@ export default function Generator() {
                 <textarea
                   value={audioPrompt}
                   onChange={e => setAudioPrompt(e.target.value)}
-                  placeholder="Scrie textul pe care să-l spună naratorul..."
+                  placeholder="Scrie textul pe care sa-l spuna naratorul sau lasă gol și va fi generat automat un text potrivit"
                   rows={3}
                   style={{
                     width: '100%', marginTop: 8, background: '#111',
