@@ -47,8 +47,11 @@ function saveToHistory(v) {
     prompt: v.prompt,
     status: v.status,
     duration: v.duration || 10,
+    width: v.width || 1280,
+    height: v.height || 720,
     audioPrompt: v.audioPrompt || '',
     useAudio: v.useAudio || false,
+    useSubtitles: v.useSubtitles || false,
     useWebsite: v.useWebsite || false,
     sourceUrl: v.sourceUrl || '',
     created_at: v.created_at || new Date().toISOString(),
@@ -76,8 +79,11 @@ export default function Generator() {
   const [prompt, setPrompt] = useState('');
   const [url, setUrl] = useState('');
   const [duration, setDuration] = useState(10);
+  const [width, setWidth] = useState(1280);
+  const [height, setHeight] = useState(720);
   const [useWebsite, setUseWebsite] = useState(false);
   const [useAudio, setUseAudio] = useState(false);
+  const [useSubtitles, setUseSubtitles] = useState(false);
   const [audioPrompt, setAudioPrompt] = useState('');
   const [videoId, setVideoId] = useState(null);
   const [mode, setMode] = useState('idle'); // idle | generating | preview | error
@@ -86,6 +92,7 @@ export default function Generator() {
   const [historyStatus, setHistoryStatus] = useState(null);
   const [debugOpen, setDebugOpen] = useState(false);
   const [debugHtml, setDebugHtml] = useState('');
+  const [showDetails, setShowDetails] = useState(false);
   const previewRef = useRef(null);
 
   // Feature flag: debug mode via URL param ?debug=true or toggle
@@ -107,7 +114,7 @@ export default function Generator() {
 
   // Load debug info (HTML composition) when viewing a ready video
   useEffect(() => {
-    if (!isDebug || !videoId || mode !== 'preview') return;
+    if (!videoId || mode !== 'preview') return;
     const fetchDebug = async () => {
       try {
         const res = await fetch(`${API}/api/video/${videoId}/preview`);
@@ -128,7 +135,10 @@ export default function Generator() {
     // Restore all form fields from history entry
     setPrompt(v.prompt || '');
     setDuration(v.duration || 10);
+    setWidth(v.width || 1280);
+    setHeight(v.height || 720);
     setUseAudio(v.useAudio || false);
+    setUseSubtitles(v.useSubtitles || false);
     setAudioPrompt(v.audioPrompt || '');
     setUseWebsite(v.useWebsite || false);
     setUrl(v.sourceUrl || '');
@@ -148,7 +158,7 @@ export default function Generator() {
     setError('');
     setDebugHtml('');
 
-    const options = { quality: 'draft', duration, useAudio };
+    const options = { quality: 'draft', duration, width, height, useAudio, useSubtitles };
     if (audioPrompt.trim()) options.audioPrompt = audioPrompt.trim();
     if (useWebsite && url.trim()) options.sourceUrl = url.trim();
     const body = { prompt: text, options };
@@ -164,7 +174,7 @@ export default function Generator() {
       setVideoId(data.videoId);
       saveToHistory({
         id: data.videoId, prompt: text, status: 'generating',
-        duration, useAudio, audioPrompt: audioPrompt.trim(),
+        duration, width, height, useAudio, useSubtitles, audioPrompt: audioPrompt.trim(),
         useWebsite, sourceUrl: url.trim(),
         created_at: new Date().toISOString(),
       });
@@ -309,6 +319,33 @@ export default function Generator() {
                 />
               </div>
 
+              {/* Resolution */}
+              <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
+                <label style={{ fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap' }}>
+                  📐 Rezoluție
+                </label>
+                <select
+                  value={`${width}x${height}`}
+                  onChange={e => {
+                    const [w, h] = e.target.value.split('x').map(Number);
+                    setWidth(w);
+                    setHeight(h);
+                  }}
+                  style={{
+                    flex: 1, background: '#111', border: '1px solid var(--border)',
+                    borderRadius: 8, color: 'var(--text)', padding: '8px 12px', fontSize: 14,
+                    fontFamily: 'inherit', cursor: 'pointer',
+                  }}
+                >
+                  <option value="1280x720">1280×720 (HD)</option>
+                  <option value="1920x1080">1920×1080 (Full HD)</option>
+                  <option value="2560x1440">2560×1440 (2K)</option>
+                  <option value="720x1280">720×1280 (Reels)</option>
+                  <option value="1080x1920">1080×1920 (Full Reels)</option>
+                  <option value="1080x1080">1080×1080 (Square)</option>
+                </select>
+              </div>
+
               {/* From website checkbox */}
               <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
                 <input
@@ -364,6 +401,20 @@ export default function Generator() {
                   }}
                 />
               )}
+
+              {/* Subtitles toggle */}
+              <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+                <input
+                  type="checkbox"
+                  id="chk-subtitles"
+                  checked={useSubtitles}
+                  onChange={e => setUseSubtitles(e.target.checked)}
+                  style={{ width: 18, height: 18, accentColor: 'var(--accent)', cursor: 'pointer' }}
+                />
+                <label htmlFor="chk-subtitles" style={{ fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+                  📝 Subtitles
+                </label>
+              </div>
 
               {/* Generate button */}
               <button
@@ -581,82 +632,100 @@ export default function Generator() {
                   >
                     🔄 Regenerare
                   </button>
+                  <button
+                    onClick={() => setShowDetails(!showDetails)}
+                    style={{
+                      flex: 1, padding: '10px', background: '#1a1a2e',
+                      border: `1px solid ${showDetails ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 6,
+                      color: showDetails ? 'var(--accent)' : 'var(--text-secondary)',
+                      cursor: 'pointer', fontWeight: 600, fontSize: 13,
+                    }}
+                  >
+                    {showDetails ? '🔍 Ascunde Detalii' : '🔍 Detalii'}
+                  </button>
                 </div>
               )}
 
-              {/* Debug panel (visible only in debug mode when video is ready) */}
-              {isDebug && mode === 'preview' && ((status || historyStatus)?.status === 'ready') && (
-                <div style={{
-                  borderTop: '1px solid var(--border)',
-                }}>
-                  <button
-                    onClick={() => setDebugOpen(!debugOpen)}
-                    style={{
-                      width: '100%', padding: '10px 16px', background: 'transparent',
-                      border: 'none', color: 'var(--text-secondary)', cursor: 'pointer',
-                      fontSize: 12, fontWeight: 600, textAlign: 'left',
-                      display: 'flex', alignItems: 'center', gap: 8,
-                    }}
-                  >
-                    <span style={{ transform: debugOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }}>▶</span>
-                    {debugOpen ? 'Ascunde Debug Info' : '🔍 Arată Debug Info (HTML, prompt, etc.)'}
-                  </button>
-                  {debugOpen && (
-                    <div style={{ padding: '0 12px 12px', fontSize: 12 }}>
-                      {/* Video ID */}
-                      <div style={{ marginBottom: 8 }}>
-                        <strong>Video ID:</strong> <code style={{ color: 'var(--accent)' }}>{videoId}</code>
-                      </div>
+              {/* Details panel — always visible via "🔍 Detalii" toggle, reads from debugInfo in status/historyStatus */}
+              {showDetails && mode === 'preview' && ((status || historyStatus)?.status === 'ready') && (
+                <div style={{ padding: 12, borderTop: '1px solid var(--border)', fontSize: 12 }}>
+                  {/* Video ID */}
+                  <div style={{ marginBottom: 8 }}>
+                    <strong>Video ID:</strong> <code style={{ color: 'var(--accent)' }}>{videoId}</code>
+                  </div>
 
-                      {/* Prompt */}
-                      <div style={{ marginBottom: 8 }}>
-                        <strong>Prompt:</strong>
+                  {/* Composition HTML (from debugInfo, first 500 chars) */}
+                  {(status || historyStatus)?.debugInfo?.composition_html && (
+                    <div style={{ marginBottom: 8 }}>
+                      <strong>🧬 HTML Composition:</strong>
+                      <pre style={{
+                        background: '#111', padding: 8, borderRadius: 6,
+                        marginTop: 4, fontSize: 10, overflowX: 'auto',
+                        whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                        maxHeight: 150, overflowY: 'auto', lineHeight: 1.3,
+                      }}>{(status || historyStatus).debugInfo.composition_html.substring(0, 500)}</pre>
+                      {(status || historyStatus).debugInfo.composition_html.length > 500 && (
+                        <span style={{ color: 'var(--text-secondary)', marginTop: 2, display: 'block' }}>
+                          ... ({(status || historyStatus).debugInfo.composition_html.length} chars total)
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Audio narration (if exists) */}
+                  {(status || historyStatus)?.debugInfo?.auto_narration && (
+                    <div style={{ marginBottom: 8 }}>
+                      <strong>🎙️ Audio Narration:</strong>
+                      <pre style={{
+                        background: '#111', padding: 8, borderRadius: 6,
+                        marginTop: 4, fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                        maxHeight: 100, overflowY: 'auto',
+                      }}>{(status || historyStatus).debugInfo.auto_narration}</pre>
+                    </div>
+                  )}
+
+                  {/* Lint result */}
+                  {(status || historyStatus)?.debugInfo?.lint && (
+                    <div style={{ marginBottom: 8 }}>
+                      <strong>🔍 Lint: </strong>
+                      <span style={{ color: (status || historyStatus).debugInfo.lint.ok ? 'var(--success)' : 'var(--error)' }}>
+                        {(status || historyStatus).debugInfo.lint.ok ? '✅ Passed' : '⚠️ Warnings'}
+                      </span>
+                      {(status || historyStatus).debugInfo.lint.errors && (
                         <pre style={{
                           background: '#111', padding: 8, borderRadius: 6,
-                          marginTop: 4, fontSize: 11, overflowX: 'auto',
-                          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                          maxHeight: 150, overflowY: 'auto',
-                        }}>{(status || historyStatus)?.prompt || 'N/A'}</pre>
-                      </div>
-
-                      {/* Duration */}
-                      <div style={{ marginBottom: 8 }}>
-                        <strong>Durata:</strong> {duration}s
-                      </div>
-
-                      {/* Audio prompt */}
-                      {useAudio && audioPrompt && (
-                        <div style={{ marginBottom: 8 }}>
-                          <strong>Audio Prompt:</strong>
-                          <pre style={{
-                            background: '#111', padding: 8, borderRadius: 6,
-                            marginTop: 4, fontSize: 11, overflowX: 'auto',
-                            whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                            maxHeight: 100, overflowY: 'auto',
-                          }}>{audioPrompt}</pre>
-                        </div>
+                          marginTop: 4, fontSize: 10, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                          maxHeight: 100, overflowY: 'auto',
+                        }}>{(status || historyStatus).debugInfo.lint.errors}</pre>
                       )}
+                    </div>
+                  )}
 
-                      {/* Generated HTML composition */}
-                      {debugHtml && (
-                        <div style={{ marginBottom: 8 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                            <strong>HTML Composition:</strong>
-                            <span style={{ fontSize: 10, color: 'var(--text-secondary)' }}>
-                              ({debugHtml.length} bytes)
-                            </span>
-                          </div>
-                          <pre style={{
-                            background: '#111', padding: 8, borderRadius: 6,
-                            fontSize: 10, overflowX: 'auto',
-                            whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                            maxHeight: 300, overflowY: 'auto',
-                            lineHeight: 1.4,
-                          }}>{debugHtml}</pre>
+                  {/* Render status + path */}
+                  {(status || historyStatus)?.debugInfo?.render && (
+                    <div style={{ marginBottom: 8 }}>
+                      <strong>🎬 Render: </strong>
+                      <span style={{ color: (status || historyStatus).debugInfo.render.ok ? 'var(--success)' : 'var(--error)' }}>
+                        {(status || historyStatus).debugInfo.render.ok ? '✅ OK' : '❌ Failed'}
+                      </span>
+                      {(status || historyStatus).debugInfo.render.path && (
+                        <div style={{ marginTop: 2, color: '#aaa', fontSize: 10 }}>
+                          📁 {String((status || historyStatus).debugInfo.render.path).substring(0, 120)}
                         </div>
                       )}
                     </div>
                   )}
+
+                  {/* Prompt (from status or historyStatus) */}
+                  <div style={{ marginBottom: 8 }}>
+                    <strong>Prompt:</strong>
+                    <pre style={{
+                      background: '#111', padding: 8, borderRadius: 6,
+                      marginTop: 4, fontSize: 11, overflowX: 'auto',
+                      whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                      maxHeight: 100, overflowY: 'auto',
+                    }}>{(status || historyStatus)?.prompt || 'N/A'}</pre>
+                  </div>
                 </div>
               )}
             </div>
@@ -701,6 +770,7 @@ export default function Generator() {
                     <span style={{ fontSize: 11, color: 'var(--error)' }}>eșuat</span>
                   )}
                   {v.useAudio && <span style={{ fontSize: 11, color: 'var(--accent)' }}>🎵</span>}
+                  {v.useSubtitles && <span style={{ fontSize: 11 }}>📝</span>}
                   {v.useWebsite && <span style={{ fontSize: 11 }}>🌐</span>}
                 </div>
               ))}

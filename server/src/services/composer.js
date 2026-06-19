@@ -11,13 +11,15 @@ export async function composeFromPrompt(prompt, options = {}) {
 
   let duration = parseInt(options.duration) || 10;
   duration = Math.min(Math.max(duration, 1), 120);
+  const width = options.width || 1280;
+  const height = options.height || 720;
 
   const systemPrompt = `You are a HyperFrames composition expert. Generate ONLY the HTML content for a video composition.
 
 IMPORTANT — You MUST follow the HyperFrames pattern EXACTLY:
 
 ## Structure
-- Root: <div id="root" data-composition-id="main" data-start="0" data-width="1280" data-height="720" data-duration="N" style="position:relative; width:1280px; height:720px; overflow:hidden; background:#...;">
+- Root: <div id="root" data-composition-id="main" data-start="0" data-width="${width}" data-height="${height}" data-duration="N" style="position:relative; width:${width}px; height:${height}px; overflow:hidden; background:#...;">
 - Every SCENE is a DIRECT child of #root
 \- Each scene is a <section id="scene-0" class="clip" data-start="0" data-duration="M" data-track-index="1" style="position:absolute; inset:0; ...">
 - Nested inside this section goes the scene's content using whatever layout makes sense (flexbox, grid, text, images, etc.)
@@ -43,11 +45,12 @@ IMPORTANT — You MUST follow the HyperFrames pattern EXACTLY:
 - class="clip" goes ONLY on direct children of #root (scene sections)
 - Elements INSIDE a scene section do NOT have class="clip"
 - Every clip has: id, class="clip", data-start, data-duration, data-track-index
-- Root has: id="root", data-composition-id="main", data-width="1920", data-height="1080", data-duration
+- Root has: id="root", data-composition-id="main", data-width="${width}", data-height="${height}", data-duration
 - position: absolute; inset: 0 on every scene clip section
 - Output ONLY the complete HTML starting with <!DOCTYPE html>, ending with </html>
 - NO markdown fences, NO backticks, NO explanations, NO code blocks
-- NO audio or video elements in the HTML (we add them separately)`;
+- NO audio or video elements in the HTML (we add them separately)
+- NOTĂ: Watermark-ul logo e adăugat automat de sistem — NU include imagini de logo sau watermark în HTML`;
 
   const userPrompt = `Create a ${duration}-second video composition for: ${prompt}
 
@@ -102,9 +105,9 @@ The total duration is EXACTLY ${duration} seconds. If there are multiple scenes,
           /<div[^>]*id="root"[^>]*>/i,
           (match) => {
             let fixed = match;
-            if (!fixed.includes('data-width=')) fixed = fixed.replace('id="root"', 'id="root" data-width="1280" data-height="720"');
+            if (!fixed.includes('data-width=')) fixed = fixed.replace('id="root"', `id="root" data-width="${width}" data-height="${height}"`);
             if (!fixed.includes('data-composition-id=')) fixed = fixed.replace('data-width=', 'data-composition-id="main" data-width=');
-            if (!fixed.includes('data-duration=')) fixed = fixed.replace(/data-height="720"/, `data-height="720" data-duration="${duration}"`);
+            if (!fixed.includes('data-duration=')) fixed = fixed.replace(`data-height="${height}"`, `data-height="${height}" data-duration="${duration}"`);
             return fixed;
           }
         );
@@ -160,6 +163,16 @@ The total duration is EXACTLY ${duration} seconds. If there are multiple scenes,
         }
       );
 
+      // Fix 6b: Ensure data-width and data-height on root match requested dimensions
+      html = html.replace(
+        /(<div[^>]*id="root"[^>]*?)data-width="(\d+)"/,
+        (match, before, val) => `${before}data-width="${width}"`
+      );
+      html = html.replace(
+        /(<div[^>]*id="root"[^>]*?)data-height="(\d+)"/,
+        (match, before, val) => `${before}data-height="${height}"`
+      );
+
       // Fix 7: Strip .clip opacity:0 — NOT a HyperFrames convention, breaks GSAP from()
       html = html.replace(/\.clip\s*\{\s*opacity\s*:\s*0\s*;?\s*\}\s*\/\*?\s*HyperFrames will manage visibility\s*\*?\//gi, '');
       html = html.replace(/\.clip\s*\{\s*opacity\s*:\s*0\s*;?\s*\}/gi, '');
@@ -179,6 +192,15 @@ The total duration is EXACTLY ${duration} seconds. If there are multiple scenes,
         html = html.replace(
           /(<body[^>]*>)/i,
           (match, tag) => `${tag}\n<div id="bg-fallback" style="position:fixed;inset:0;background:${rootBg};z-index:-1;"></div>`
+        );
+      }
+
+      // Fix 10: Add watermark overlay if not already present
+      const WATERMARK_URL = 'https://cognitum.ro/assets/logo-inv.png';
+      if (!html.includes('watermark')) {
+        html = html.replace(
+          '</body>',
+          `  <img src="${WATERMARK_URL}" style="position:absolute;bottom:20px;right:20px;width:100px;opacity:0.5;z-index:999;pointer-events:none;" alt="watermark" />\n</body>`
         );
       }
 
@@ -255,11 +277,42 @@ export async function generateTTS(text) {
 
 /**
  * Generate subtitles in WebVTT format
+ * @param {string} text - Narration text to split into subtitle cues
+ * @param {number} totalDuration - Total video duration in seconds
+ * @returns {string} WebVTT content
  */
-export async function generateSubtitles(text) {
-  const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
-  const result = await model.generateContent([
-    { text: `Generate WebVTT format subtitles for this narration text. Estimate timing at ~150 words per minute. Return ONLY the WebVTT content:\n\n${text}` }
-  ]);
-  return result.response.text();
+export function generateSubtitles(text, totalDuration = 10) {
+  // Split text into sentences
+  const sentences = text
+    .split(/(?<=[.!?])\s+/)
+    .map(s => s.trim())
+    .filter(s => s.length > 0);
+
+  if (sentences.length === 0) {
+    return 'WEBVTT\n\n';
+  }
+
+  const durationPerSentence = totalDuration / sentences.length;
+  const lines = ['WEBVTT', ''];
+
+  sentences.forEach((sentence, i) => {
+    const start = i * durationPerSentence;
+    const end = Math.min((i + 1) * durationPerSentence, totalDuration);
+
+    const fmt = (secs) => {
+      const totalMs = Math.round(secs * 1000);
+      const h = Math.floor(totalMs / 3600000);
+      const m = Math.floor((totalMs % 3600000) / 60000);
+      const s = Math.floor((totalMs % 60000) / 1000);
+      const ms = totalMs % 1000;
+      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
+    };
+
+    lines.push(`${i + 1}`);
+    lines.push(`${fmt(start)} --> ${fmt(end)}`);
+    lines.push(sentence);
+    lines.push('');
+  });
+
+  return lines.join('\n');
 }

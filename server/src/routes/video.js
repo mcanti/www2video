@@ -322,7 +322,7 @@ async function generateInBackground(videoId, prompt, options) {
         const genAI = new (await import('@google/generative-ai')).GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
         const result = await model.generateContent([
-          { text: 'Generate a short, professional voiceover narration script (in Romanian) for this video. Keep it under 30 words, spoken clearly. Return ONLY the spoken text, no formatting:' },
+          { text: 'Generate 3-5 sentences for a professional voiceover narration script (in Romanian) for this video. The sentences should flow naturally from one to the next. Return ONLY the spoken text, no formatting. Total: 40-80 words.' },
           { text: `Video content: ${enrichedPrompt}` },
         ]);
         narrationText = result.response.text().trim();
@@ -365,6 +365,30 @@ async function generateInBackground(videoId, prompt, options) {
       const dbA = await getDb();
       dbA.run('UPDATE videos SET tts_path = ? WHERE id = ?', [ttsPath, videoId]);
       await saveAndClose(dbA);
+    }
+
+    // Generate subtitles (WebVTT) if requested and narration text exists
+    if (options.useSubtitles && narrationText.trim()) {
+      try {
+        const vttDir = path.join(workDir, 'vtt');
+        await fs.mkdir(vttDir, { recursive: true });
+        const vttContent = generateSubtitles(narrationText, duration);
+        const vttPath = path.join(vttDir, 'subtitles.vtt');
+        await fs.writeFile(vttPath, vttContent, 'utf-8');
+        console.log('[generate] subtitles written to', vttPath);
+
+        // Inject <track> into composition HTML
+        const compositionPath = path.join(workDir, 'index.html');
+        let composition = await fs.readFile(compositionPath, 'utf-8');
+        composition = composition.replace(
+          '</body>',
+          '<track kind="subtitles" src="vtt/subtitles.vtt" srclang="ro" label="Română" default>\n</body>'
+        );
+        await fs.writeFile(compositionPath, composition);
+        await updateDebug(videoId, { subtitles_vtt: vttContent.substring(0, 500) });
+      } catch (e) {
+        console.error('[generate] subtitles error:', e.message);
+      }
     }
 
     // Save composition path
