@@ -264,11 +264,11 @@ export function extractDesignTokens(html, cssContent) {
  * Generate TTS audio narration using Gemini
  * Returns base64-encoded audio content
  */
-export async function generateTTS(text) {
+export async function generateTTS(text, voice = 'Kore') {
   // Use Google Cloud Text-to-Speech via dedicated service
   try {
     const { generateTTS: gcloudTTS } = await import('../services/tts.js');
-    return await gcloudTTS(text);
+    return await gcloudTTS(text, voice);
   } catch (err) {
     console.error('[composer] TTS error:', err.message);
     return { text: err.message };

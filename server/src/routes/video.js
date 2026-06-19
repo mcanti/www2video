@@ -148,7 +148,7 @@ router.post('/generate', async (req, res) => {
     }
     await saveAndClose(db);
 
-    generateInBackground(videoId, prompt, { ...options, duration, audioPrompt, sourceUrl });
+    generateInBackground(videoId, prompt, { ...options, duration, audioPrompt, sourceUrl, tts_voice: voiceName });
 
     res.status(202).json({
       videoId,
@@ -426,7 +426,7 @@ async function generateInBackground(videoId, prompt, options) {
       try {
         const audioDir = path.join(workDir, 'audio');
         await fs.mkdir(audioDir, { recursive: true });
-        const audioResult = await generateTTS(narrationText, options.tts_voice || 'Kore');
+        const audioResult = await generateTTS(narrationText, options.voiceName || 'Kore');
         if (audioResult instanceof ArrayBuffer || audioResult instanceof Buffer) {
           ttsPath = path.join(audioDir, 'narration.wav');
           await fs.writeFile(ttsPath, Buffer.from(audioResult));
