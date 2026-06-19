@@ -17,10 +17,14 @@ function usePollStatus(videoId, onReady) {
         if (cancelled) return;
         setStatus(data);
 
-        if (data.status === 'ready' || data.status === 'failed') {
-          if (data.status === 'ready' && onReady) onReady(data);
-          return;
+        // Trigger onReady for both final states and composition_ready (preview step)
+        if (data.status === 'ready' || data.status === 'failed' || data.status === 'composition_ready') {
+          if (onReady) onReady(data);
+          // Only stop polling for truly terminal states
+          if (data.status === 'ready' || data.status === 'failed') return;
+          // For composition_ready, continue polling (user may trigger render)
         }
+        // If status is 'rendering', keep polling until ready/failed
         setTimeout(poll, 1500);
       } catch {
         if (!cancelled) setTimeout(poll, 3000);
@@ -61,7 +65,6 @@ function saveToHistory(v) {
 }
 
 const GEMINI_VOICES = [
-  // Feminine
   { name: 'Kore', label: 'Female / Firm, strong, authoritative yet approachable' },
   { name: 'Aoede', label: 'Female / Breezy, light and airy, melodic' },
   { name: 'Autonoe', label: 'Female / Bright, clear and optimistic' },
@@ -79,7 +82,6 @@ const GEMINI_VOICES = [
   { name: 'Vindemiatrix', label: 'Female / Gentle, soft and calming' },
   { name: 'Zephyr', label: 'Female / Bright, clear and fresh' },
   { name: 'Achernar', label: 'Female / Soft, gentle and soothing' },
-  // Masculine
   { name: 'Puck', label: 'Male / Upbeat, lively and energetic' },
   { name: 'Charon', label: 'Male / Informative, calm and professional' },
   { name: 'Fenrir', label: 'Male / Excitable, dynamic and expressive' },
@@ -111,67 +113,54 @@ Scene 3 (7-10s): Strong CTA panel. "Ready to Transform Your Workflow?" in large 
 
 // ========== COLLAPSIBLE SECTION COMPONENTS ==========
 // MUST be outside Generator to avoid remount on every keystroke
-// (inline components lose focus on inputs)
 
 const SectionHeader = ({ icon, title, section, expanded, onToggle }) => (
-    <div
-      onClick={() => onToggle(section)}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-        padding: '14px 20px',
-        cursor: 'pointer',
-        userSelect: 'none',
-        transition: 'background 0.15s',
-        borderRadius: expanded ? '10px 10px 0 0' : 10,
-        background: expanded ? 'rgba(108,99,255,0.06)' : 'transparent',
-      }}
-      onMouseOver={e => {
-        if (!expanded) e.currentTarget.style.background = 'rgba(108,99,255,0.04)';
-      }}
-      onMouseOut={e => {
-        if (!expanded) e.currentTarget.style.background = 'transparent';
-      }}
-    >
-      <span style={{ fontSize: 16 }}>{icon}</span>
-      <span style={{
-        flex: 1,
-        fontSize: 14,
-        fontWeight: 600,
-        color: expanded ? 'var(--accent)' : 'var(--text)',
-        transition: 'color 0.2s',
-      }}>
-        {title}
-      </span>
-      <span style={{
-        fontSize: 12,
-        color: 'var(--text-secondary)',
-        transition: 'transform 0.25s ease',
-        transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
-        display: 'inline-block',
-      }}>
-        ▼
-      </span>
-    </div>
-  );
+  <div
+    onClick={() => onToggle(section)}
+    style={{
+      display: 'flex', alignItems: 'center', gap: 10,
+      padding: '14px 20px', cursor: 'pointer', userSelect: 'none',
+      transition: 'background 0.15s',
+      borderRadius: expanded ? '10px 10px 0 0' : 10,
+      background: expanded ? 'rgba(108,99,255,0.06)' : 'transparent',
+    }}
+    onMouseOver={e => { if (!expanded) e.currentTarget.style.background = 'rgba(108,99,255,0.04)'; }}
+    onMouseOut={e => { if (!expanded) e.currentTarget.style.background = 'transparent'; }}
+  >
+    <span style={{ fontSize: 16 }}>{icon}</span>
+    <span style={{
+      flex: 1, fontSize: 14, fontWeight: 600,
+      color: expanded ? 'var(--accent)' : 'var(--text)',
+      transition: 'color 0.2s',
+    }}>
+      {title}
+    </span>
+    <span style={{
+      fontSize: 12, color: 'var(--text-secondary)',
+      transition: 'transform 0.25s ease',
+      transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
+      display: 'inline-block',
+    }}>
+      ▼
+    </span>
+  </div>
+);
 
 const SectionBody = ({ expanded, children }) => (
-    <div style={{
-      maxHeight: expanded ? 600 : 0,
-      overflow: 'hidden',
-      transition: 'max-height 0.35s ease, opacity 0.25s ease, padding 0.25s ease',
-      opacity: expanded ? 1 : 0,
-    }}>
-      <div style={{ padding: expanded ? '4px 20px 18px' : '0 20px' }}>
-        {children}
-      </div>
+  <div style={{
+    maxHeight: expanded ? 600 : 0, overflow: 'hidden',
+    transition: 'max-height 0.35s ease, opacity 0.25s ease, padding 0.25s ease',
+    opacity: expanded ? 1 : 0,
+  }}>
+    <div style={{ padding: expanded ? '4px 20px 18px' : '0 20px' }}>
+      {children}
     </div>
-  );
+  </div>
+);
 
 const SectionDivider = () => (
-    <div style={{ height: 1, background: 'var(--border)', margin: '0 20px', opacity: 0.4 }} />
-  );
+  <div style={{ height: 1, background: 'var(--border)', margin: '0 20px', opacity: 0.4 }} />
+);
 
 export default function Generator() {
   const [prompt, setPrompt] = useState('');
@@ -185,7 +174,7 @@ export default function Generator() {
   const [audioPrompt, setAudioPrompt] = useState('');
   const [voiceName, setVoiceName] = useState('Kore');
   const [videoId, setVideoId] = useState(null);
-  const [mode, setMode] = useState('idle'); // idle | generating | preview | error
+  const [mode, setMode] = useState('idle'); // idle | generating | preview_composition | rendering | preview | error
   const [history, setHistory] = useState(loadHistory);
   const [error, setError] = useState('');
   const [historyStatus, setHistoryStatus] = useState(null);
@@ -195,36 +184,45 @@ export default function Generator() {
   const [copiedUrl, setCopiedUrl] = useState(false);
   const previewRef = useRef(null);
 
-  // Collapsible sections state
   const [expandedSections, setExpandedSections] = useState({
-    content: true,
-    technical: false,
-    audio: false,
-    advanced: false,
+    content: true, technical: false, audio: false, advanced: false,
   });
 
   const toggleSection = (section) => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
 
-  // Feature flag: debug mode via URL param ?debug=true or toggle
   const isDebug = window.location.search.includes('debug=true');
 
-  // Update localStorage history when polling detects final status
+  // When polling detects a terminal or composition-ready status
   const handlePollReady = (data) => {
-    const list = loadHistory();
-    const idx = list.findIndex(item => item.id === videoId);
-    if (idx !== -1 && list[idx].status !== 'ready' && list[idx].status !== 'failed') {
-      list[idx].status = data.status;
-      localStorage.setItem(LS_KEY, JSON.stringify(list.slice(0, 20)));
-      setHistory(loadHistory());
+    // Update history status
+    if (data.status === 'composition_ready' || data.status === 'ready' || data.status === 'failed') {
+      const list = loadHistory();
+      const idx = list.findIndex(item => item.id === videoId);
+      if (idx !== -1 && list[idx].status !== 'ready' && list[idx].status !== 'failed') {
+        list[idx].status = data.status;
+        localStorage.setItem(LS_KEY, JSON.stringify(list.slice(0, 20)));
+        setHistory(loadHistory());
+      }
     }
-    setMode('preview');
+
+    if (data.status === 'composition_ready') {
+      setMode('preview_composition');
+    } else if (data.status === 'ready') {
+      setMode('preview');
+    } else if (data.status === 'failed') {
+      setError(data.error || 'Generation failed');
+      setMode('error');
+    }
   };
 
-  const status = usePollStatus(mode === 'generating' ? videoId : null, handlePollReady);
+  const status = usePollStatus(
+    (mode === 'generating' || mode === 'rendering' || mode === 'preview_composition') ? videoId : null,
+    handlePollReady
+  );
 
-  // Load debug info (HTML composition) when viewing a ready video
+  // Load debug info when viewing a ready video
   useEffect(() => {
     if (!videoId || mode !== 'preview') return;
     const fetchDebug = async () => {
@@ -241,10 +239,9 @@ export default function Generator() {
 
   // Load a video's full status and restore form fields when clicking history
   const loadHistoryVideo = async (v) => {
-    if (v.status !== 'ready' && v.status !== 'failed') return;
+    if (v.status !== 'ready' && v.status !== 'failed' && v.status !== 'composition_ready') return;
     setVideoId(v.id);
-    setMode('preview');
-    // Restore all form fields from history entry
+    setMode(v.status === 'composition_ready' ? 'preview_composition' : 'preview');
     setPrompt(v.prompt || '');
     setDuration(v.duration || 10);
     setWidth(v.width || 1280);
@@ -256,30 +253,20 @@ export default function Generator() {
     setUseWebsite(v.useWebsite || false);
     setUrl(v.sourceUrl || '');
     setHistoryStatus(null);
+    setError('');
     try {
       const res = await fetch(`${API}/api/video/${v.id}/status`);
       const data = await res.json();
       setHistoryStatus(data);
-      // Restore auto-generated narration text from server
-      if (data.tts_text) {
-        setUseAudio(true);
-        setAudioPrompt(data.tts_text);
-      }
-      if (data.tts_voice) {
-        setVoiceName(data.tts_voice);
-      }
+      if (data.tts_text) { setUseAudio(true); setAudioPrompt(data.tts_text); }
+      if (data.tts_voice) setVoiceName(data.tts_voice);
     } catch {}
   };
 
-  // Delete a history entry from localStorage and DB
   const handleDeleteHistory = async (e, id) => {
     e.stopPropagation();
     e.preventDefault();
-    try {
-      await fetch(`${API}/api/video/${id}`, { method: 'DELETE' });
-    } catch (err) {
-      console.warn('[delete] API call failed, removing from localStorage anyway:', err.message);
-    }
+    try { await fetch(`${API}/api/video/${id}`, { method: 'DELETE' }); } catch {}
     const list = loadHistory().filter(item => item.id !== id);
     localStorage.setItem(LS_KEY, JSON.stringify(list));
     setHistory(loadHistory());
@@ -289,7 +276,6 @@ export default function Generator() {
     const text = prompt.trim();
     if (!text) return;
 
-    // Reset videoId first so usePollStatus doesn't poll the old video
     setVideoId(null);
     setMode('generating');
     setError('');
@@ -307,20 +293,40 @@ export default function Generator() {
         body: JSON.stringify(body),
       });
       const data = await res.json();
-      if (data.error) { setError(data.error); setMode('idle'); return; }
+      if (data.error) { setError(data.error); setMode('error'); return; }
       setVideoId(data.videoId);
-      saveToHistory({
-        id: data.videoId, prompt: text, status: 'generating',
-        duration, width, height, useAudio, useSubtitles, audioPrompt: audioPrompt.trim(),
-        voiceName,
-        useWebsite, sourceUrl: url.trim(),
-        created_at: new Date().toISOString(),
-      });
+      saveToHistory({ id: data.videoId, prompt: text, status: 'generating', duration, width, height, useAudio, useSubtitles, audioPrompt: audioPrompt.trim(), voiceName, useWebsite, sourceUrl: url.trim(), created_at: new Date().toISOString() });
       setHistory(loadHistory());
     } catch (err) {
       setError(err.message);
-      setMode('idle');
+      setMode('error');
     }
+  };
+
+  const handleRenderMP4 = async () => {
+    if (!videoId) return;
+    setMode('rendering');
+    setError('');
+    try {
+      const res = await fetch(`${API}/api/video/${videoId}/render`, { method: 'POST' });
+      const data = await res.json();
+      if (data.error) { setError(data.error); setMode('preview_composition'); return; }
+      // Polling will pick up 'rendering' → 'ready' transition via usePollStatus
+    } catch (err) {
+      setError(err.message);
+      setMode('preview_composition');
+    }
+  };
+
+  const handleDownload = () => {
+    if (!videoId) return;
+    // Trigger download
+    const a = document.createElement('a');
+    a.href = `${API}/api/video/${videoId}/download`;
+    a.download = `www2video-${videoId.slice(0, 8)}.mp4`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
 
   const handleRegenerate = () => {
@@ -328,7 +334,6 @@ export default function Generator() {
     handleGenerate();
   };
 
-  // Load lumi.bot defaults (debug mode only)
   const loadLumiDefaults = () => {
     setPrompt(LUMI_DEFAULTS.prompt);
     setDuration(LUMI_DEFAULTS.duration);
@@ -338,9 +343,8 @@ export default function Generator() {
     setUrl(LUMI_DEFAULTS.sourceUrl);
   };
 
-  const isGenerating = mode === 'generating';
+  const isGenerating = mode === 'generating' || mode === 'rendering';
 
-  // Timeline steps
   const timelineSteps = [
     { step: 'initializing', icon: '📁', label: 'Pregătire proiect' },
     { step: 'generating_composition', icon: '🤖', label: 'Generare conținut' },
@@ -349,170 +353,112 @@ export default function Generator() {
     { step: 'rendering_video', icon: '🎬', label: 'Generare video' },
     { step: 'finalizing', icon: '📦', label: 'Finalizare' },
   ];
-  // Map backend granular steps to template step groups
   const stepGroups = {
-    'initializing': 0, 'initialized': 0,
+    'queued': -1, 'initializing': 0, 'initialized': 0,
     'generating_composition': 1, 'composition_ai': 1, 'composition_done': 1,
     'generating_audio': 1, 'audio_done': 1, 'audio_skip': 1,
     'writing_composition': 2,
     'validating': 3, 'lint_warning': 3, 'validated': 3,
+    'composition_ready': 3,
     'rendering_video': 4,
     'finalizing': 5,
     'fetching_website': 0, 'extracting_identity': 1, 'saving_identity': 2,
-    'ready': 6, 'failed': 6, 'queued': -1,
+    'ready': 6, 'failed': 6,
   };
-  const stepOrder = ['initializing', 'generating_composition', 'writing_composition', 'validating', 'rendering_video', 'finalizing', 'ready'];
-
-  // SectionHeader, SectionBody, SectionDivider are defined at module scope
-  // (outside Generator) to prevent focus loss on re-render
 
   const inputStyle = {
-    width: '100%',
-    background: '#111',
-    border: '1px solid var(--border)',
-    borderRadius: 8,
-    color: 'var(--text)',
-    padding: '10px 14px',
-    fontSize: 14,
-    fontFamily: 'inherit',
+    width: '100%', background: '#111', border: '1px solid var(--border)',
+    borderRadius: 8, color: 'var(--text)', padding: '10px 14px',
+    fontSize: 14, fontFamily: 'inherit',
     transition: 'border-color 0.2s, box-shadow 0.2s',
   };
-
   const selectStyle = {
-    ...inputStyle,
-    cursor: 'pointer',
-    appearance: 'none',
+    ...inputStyle, cursor: 'pointer', appearance: 'none',
     backgroundImage: `url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%23888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`,
-    backgroundRepeat: 'no-repeat',
-    backgroundPosition: 'right 12px center',
-    paddingRight: 36,
+    backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', paddingRight: 36,
   };
-
   const labelStyle = {
-    display: 'block',
-    fontSize: 12,
-    fontWeight: 600,
-    color: 'var(--text-secondary)',
-    marginBottom: 6,
-    textTransform: 'uppercase',
-    letterSpacing: '0.5px',
+    display: 'block', fontSize: 12, fontWeight: 600,
+    color: 'var(--text-secondary)', marginBottom: 6,
+    textTransform: 'uppercase', letterSpacing: '0.5px',
+  };
+  const checkboxStyle = {
+    width: 18, height: 18, accentColor: 'var(--accent)', cursor: 'pointer', flexShrink: 0,
   };
 
-  const checkboxStyle = {
-    width: 18,
-    height: 18,
-    accentColor: 'var(--accent)',
-    cursor: 'pointer',
-    flexShrink: 0,
+  // Shared buttons
+  const primaryBtnStyle = (disabled) => ({
+    width: '100%', padding: '14px 24px',
+    background: 'linear-gradient(135deg, var(--accent), #a78bfa)',
+    color: '#fff', border: 'none', borderRadius: 10,
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    fontSize: 16, fontWeight: 700,
+    opacity: disabled ? 0.5 : 1,
+    transition: 'filter 0.15s, transform 0.1s',
+  });
+
+  const secondaryBtnStyle = {
+    flex: 1, padding: '12px 20px',
+    background: 'transparent', border: '1px solid var(--border)',
+    borderRadius: 10, cursor: 'pointer', fontSize: 14, fontWeight: 600,
+    color: 'var(--text-secondary)',
+    transition: 'all 0.15s',
   };
 
   return (
     <div className="app">
-      {/* ====== HEADER ====== */}
       <header style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
-        padding: '20px 0 18px',
-        borderBottom: '1px solid var(--border)',
-        marginBottom: 28,
+        display: 'flex', alignItems: 'center', gap: 12,
+        padding: '20px 0 18px', borderBottom: '1px solid var(--border)', marginBottom: 28,
       }}>
-        <img
-          src="https://cognitum.ro/assets/logo-inv.png"
-          style={{ height: 32, opacity: 0.85 }}
-          alt="Cognitum"
-        />
+        <img src="https://cognitum.ro/assets/logo-inv.png" style={{ height: 32, opacity: 0.85 }} alt="Cognitum" />
         <div style={{ flex: 1 }}>
           <h1 style={{
-            margin: 0,
-            fontSize: 22,
-            fontWeight: 700,
-            letterSpacing: '-0.4px',
+            margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: '-0.4px',
             background: 'linear-gradient(135deg, var(--accent), #a78bfa)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
+            WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
           }}>
             www2video
           </h1>
-          <span style={{
-            fontSize: 12,
-            color: 'var(--text-secondary)',
-            display: 'block',
-            marginTop: 1,
-          }}>
+          <span style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'block', marginTop: 1 }}>
             AI video generator
           </span>
         </div>
         {isDebug && (
           <span style={{
-            fontSize: 11,
-            fontWeight: 700,
-            padding: '3px 12px',
+            fontSize: 11, fontWeight: 700, padding: '3px 12px',
             background: 'linear-gradient(135deg, var(--accent), #a78bfa)',
-            color: '#fff',
-            borderRadius: 6,
-            letterSpacing: '0.5px',
-          }}>
-            DEBUG
-          </span>
+            color: '#fff', borderRadius: 6, letterSpacing: '0.5px',
+          }}>DEBUG</span>
         )}
       </header>
 
-      {/* ====== MAIN LAYOUT ====== */}
       <main style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-        {/* Debug feature flag toggle */}
         {isDebug && (
-          <div style={{
-            background: '#1a1a2e',
-            border: '1px solid var(--accent)',
-            borderRadius: 12,
-            padding: 16,
-            opacity: 0.9,
-          }}>
+          <div style={{ background: '#1a1a2e', border: '1px solid var(--accent)', borderRadius: 12, padding: 16, opacity: 0.9 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
               <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>⚙️ Debug Tools</span>
-              <button
-                onClick={loadLumiDefaults}
-                style={{
-                  padding: '6px 14px',
-                  background: 'var(--accent)',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: 6,
-                  cursor: 'pointer',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  transition: 'filter 0.15s, transform 0.1s',
-                }}
+              <button onClick={loadLumiDefaults} style={{
+                padding: '6px 14px', background: 'var(--accent)', color: '#fff',
+                border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600,
+              }}
                 onMouseOver={e => e.currentTarget.style.filter = 'brightness(1.15)'}
                 onMouseOut={e => e.currentTarget.style.filter = 'none'}
-              >
-                🚀 Load lumi.bot defaults
-              </button>
+              >🚀 Load lumi.bot defaults</button>
             </div>
             <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
               Use acest buton pentru a pre-popula formularul cu valori potrivite pentru un product launch video LumiBot.
-              Ajustează promptul, durata sau audio-ul după preferințe, apoi generează.
             </div>
           </div>
         )}
 
-        {/* Two-column row */}
-        <div className="generator-layout" style={{
-          display: 'flex',
-          gap: 24,
-          alignItems: 'flex-start',
-        }}>
-          {/* ====== LEFT PANEL: FORM ====== */}
+        <div className="generator-layout" style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
+          {/* LEFT PANEL */}
           <div className="form-panel" style={{
-            flex: '1 1 440px',
-            minWidth: 320,
-            background: 'var(--surface)',
-            border: '1px solid var(--border)',
-            borderRadius: 14,
-            overflow: 'hidden',
+            flex: '1 1 440px', minWidth: 320,
+            background: 'var(--surface)', border: '1px solid var(--border)',
+            borderRadius: 14, overflow: 'hidden',
           }}>
-            {/* Section 1: Conținut */}
             <SectionHeader icon="📝" title="Conținut" section="content" expanded={expandedSections.content} onToggle={toggleSection} />
             <SectionBody expanded={expandedSections.content}>
               <textarea
@@ -520,27 +466,17 @@ export default function Generator() {
                 onChange={e => setPrompt(e.target.value)}
                 placeholder="e.g. Un clip de prezentare de 10 secunde pentru o cafea premium..."
                 rows={4}
-                style={{
-                  ...inputStyle,
-                  resize: 'vertical',
-                  minHeight: 100,
-                  lineHeight: 1.5,
-                }}
+                style={{ ...inputStyle, resize: 'vertical', minHeight: 100, lineHeight: 1.5 }}
               />
             </SectionBody>
-
             <SectionDivider />
 
-            {/* Section 2: Setări tehnice */}
             <SectionHeader icon="⚙️" title="Setări tehnice" section="technical" expanded={expandedSections.technical} onToggle={toggleSection} />
             <SectionBody expanded={expandedSections.technical}>
               <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
                 <div style={{ flex: '0 0 auto' }}>
                   <label style={labelStyle}>Durată (secunde)</label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={duration}
+                  <input type="text" inputMode="numeric" value={duration}
                     onChange={e => {
                       const v = e.target.value;
                       if (v === '' || /^\d+$/.test(v)) {
@@ -555,22 +491,13 @@ export default function Generator() {
                       else if (n > 120) setDuration(120);
                       else setDuration(n);
                     }}
-                    style={{
-                      ...inputStyle,
-                      width: 100,
-                      textAlign: 'center',
-                    }}
+                    style={{ ...inputStyle, width: 100, textAlign: 'center' }}
                   />
                 </div>
                 <div style={{ flex: 1, minWidth: 160 }}>
                   <label style={labelStyle}>Rezoluție</label>
-                  <select
-                    value={`${width}x${height}`}
-                    onChange={e => {
-                      const [w, h] = e.target.value.split('x').map(Number);
-                      setWidth(w);
-                      setHeight(h);
-                    }}
+                  <select value={`${width}x${height}`}
+                    onChange={e => { const [w, h] = e.target.value.split('x').map(Number); setWidth(w); setHeight(h); }}
                     style={selectStyle}
                   >
                     <option value="1280x720">1280×720 (HD)</option>
@@ -583,49 +510,22 @@ export default function Generator() {
                 </div>
               </div>
             </SectionBody>
-
             <SectionDivider />
 
-            {/* Section 3: Audio */}
             <SectionHeader icon="🎵" title="Audio" section="audio" expanded={expandedSections.audio} onToggle={toggleSection} />
             <SectionBody expanded={expandedSections.audio}>
-              {/* Audio toggle */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-                <input
-                  type="checkbox"
-                  id="chk-audio"
-                  checked={useAudio}
-                  onChange={e => setUseAudio(e.target.checked)}
-                  style={checkboxStyle}
-                />
-                <label htmlFor="chk-audio" style={{ fontSize: 13, cursor: 'pointer', userSelect: 'none' }}>
-                  🎵 Audio (narare)
-                </label>
+                <input type="checkbox" id="chk-audio" checked={useAudio}
+                  onChange={e => setUseAudio(e.target.checked)} style={checkboxStyle} />
+                <label htmlFor="chk-audio" style={{ fontSize: 13, cursor: 'pointer', userSelect: 'none' }}>🎵 Audio (narare)</label>
               </div>
-
               {useAudio && (
                 <>
-                  {/* Narration text input */}
-                  <textarea
-                    value={audioPrompt}
-                    onChange={e => setAudioPrompt(e.target.value)}
+                  <textarea value={audioPrompt} onChange={e => setAudioPrompt(e.target.value)}
                     placeholder="Scrie textul pe care sa-l spuna naratorul sau lasă gol și va fi generat automat un text potrivit"
-                    rows={3}
-                    style={{
-                      ...inputStyle,
-                      resize: 'vertical',
-                      minHeight: 60,
-                      lineHeight: 1.5,
-                      marginBottom: 12,
-                    }}
-                  />
-                  {/* Voice selector */}
+                    rows={3} style={{ ...inputStyle, resize: 'vertical', minHeight: 60, lineHeight: 1.5, marginBottom: 12 }} />
                   <label style={labelStyle}>Voce narator</label>
-                  <select
-                    value={voiceName}
-                    onChange={e => setVoiceName(e.target.value)}
-                    style={selectStyle}
-                  >
+                  <select value={voiceName} onChange={e => setVoiceName(e.target.value)} style={selectStyle}>
                     {GEMINI_VOICES.map(v => (
                       <option key={v.name} value={v.name}>{v.label}</option>
                     ))}
@@ -633,244 +533,102 @@ export default function Generator() {
                 </>
               )}
             </SectionBody>
-
             <SectionDivider />
 
-            {/* Section 4: Avansat */}
             <SectionHeader icon="🌐" title="Avansat" section="advanced" expanded={expandedSections.advanced} onToggle={toggleSection} />
             <SectionBody expanded={expandedSections.advanced}>
-              {/* From website checkbox */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: useWebsite ? 10 : 0 }}>
-                <input
-                  type="checkbox"
-                  id="chk-website"
-                  checked={useWebsite}
-                  onChange={e => setUseWebsite(e.target.checked)}
-                  style={checkboxStyle}
-                />
-                <label htmlFor="chk-website" style={{ fontSize: 13, cursor: 'pointer', userSelect: 'none' }}>
-                  🌐 Extrage identitate vizuală de pe site
-                </label>
+                <input type="checkbox" id="chk-website" checked={useWebsite}
+                  onChange={e => setUseWebsite(e.target.checked)} style={checkboxStyle} />
+                <label htmlFor="chk-website" style={{ fontSize: 13, cursor: 'pointer', userSelect: 'none' }}>🌐 Extrage identitate vizuală de pe site</label>
               </div>
-
               {useWebsite && (
                 <div>
                   <label style={labelStyle}>URL site</label>
-                  <input
-                    type="text"
-                    value={url}
-                    onChange={e => setUrl(e.target.value)}
-                    placeholder="https://example.com"
-                    style={inputStyle}
-                  />
+                  <input type="text" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://example.com" style={inputStyle} />
                 </div>
               )}
-
-              {/* Subtitles toggle */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14 }}>
-                <input
-                  type="checkbox"
-                  id="chk-subs"
-                  checked={useSubtitles}
-                  onChange={e => setUseSubtitles(e.target.checked)}
-                  style={checkboxStyle}
-                />
-                <label htmlFor="chk-subs" style={{ fontSize: 13, cursor: 'pointer', userSelect: 'none' }}>
-                  💬 Subtitrări
-                </label>
+                <input type="checkbox" id="chk-subs" checked={useSubtitles}
+                  onChange={e => setUseSubtitles(e.target.checked)} style={checkboxStyle} />
+                <label htmlFor="chk-subs" style={{ fontSize: 13, cursor: 'pointer', userSelect: 'none' }}>💬 Subtitrări</label>
               </div>
             </SectionBody>
 
-            {/* ====== GENERATE BUTTON ====== */}
             <div style={{ padding: '16px 20px' }}>
-              <button
-                onClick={handleGenerate}
-                disabled={isGenerating || !prompt.trim()}
-                style={{
-                  width: '100%',
-                  padding: '14px 24px',
-                  background: 'linear-gradient(135deg, var(--accent), #a78bfa)',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: 10,
-                  cursor: isGenerating || !prompt.trim() ? 'not-allowed' : 'pointer',
-                  fontSize: 16,
-                  fontWeight: 700,
-                  opacity: isGenerating || !prompt.trim() ? 0.5 : 1,
-                  transition: 'filter 0.15s, transform 0.1s',
-                }}
-                onMouseOver={e => {
-                  if (!isGenerating && prompt.trim()) {
-                    e.currentTarget.style.filter = 'brightness(1.1)';
-                    e.currentTarget.style.transform = 'translateY(-1px)';
-                  }
-                }}
-                onMouseOut={e => {
-                  e.currentTarget.style.filter = 'none';
-                  e.currentTarget.style.transform = 'none';
-                }}
+              <button onClick={handleGenerate} disabled={isGenerating || !prompt.trim()}
+                style={primaryBtnStyle(isGenerating || !prompt.trim())}
+                onMouseOver={e => { if (!isGenerating && prompt.trim()) { e.currentTarget.style.filter = 'brightness(1.1)'; e.currentTarget.style.transform = 'translateY(-1px)'; } }}
+                onMouseOut={e => { e.currentTarget.style.filter = 'none'; e.currentTarget.style.transform = 'none'; }}
               >
                 {isGenerating ? '⏳ Se generează...' : '🚀 Generare video'}
               </button>
             </div>
           </div>
 
-          {/* ====== RIGHT PANEL: OUTPUT ====== */}
-          <div className="output-panel" style={{
-            flex: '1 1 480px',
-            minWidth: 320,
-            position: 'sticky',
-            top: 24,
-          }}>
-            {/* History list */}
+          {/* RIGHT PANEL */}
+          <div className="output-panel" style={{ flex: '1 1 480px', minWidth: 320, position: 'sticky', top: 24 }}>
+            {/* History */}
             {history.length > 0 && (
-              <div style={{
-                background: 'var(--surface)',
-                border: '1px solid var(--border)',
-                borderRadius: 14,
-                overflow: 'hidden',
-                marginBottom: 16,
-              }}>
-                <div style={{
-                  padding: '12px 20px',
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: 'var(--text-secondary)',
-                  borderBottom: '1px solid var(--border)',
-                }}>
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, overflow: 'hidden', marginBottom: 16 }}>
+                <div style={{ padding: '12px 20px', fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)' }}>
                   📋 Istoric
                 </div>
                 <div style={{ maxHeight: 200, overflowY: 'auto' }}>
                   {history.map(v => (
-                    <div
-                      key={v.id}
-                      onClick={() => loadHistoryVideo(v)}
+                    <div key={v.id} onClick={() => loadHistoryVideo(v)}
                       style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 10,
-                        padding: '10px 20px',
-                        cursor: v.status === 'ready' || v.status === 'failed' ? 'pointer' : 'default',
-                        borderBottom: '1px solid var(--border)',
-                        transition: 'background 0.1s',
-                        opacity: v.status === 'ready' ? 1 : 0.65,
+                        display: 'flex', alignItems: 'center', gap: 10, padding: '10px 20px',
+                        cursor: (v.status === 'ready' || v.status === 'failed' || v.status === 'composition_ready') ? 'pointer' : 'default',
+                        borderBottom: '1px solid var(--border)', transition: 'background 0.1s',
+                        opacity: (v.status === 'ready' || v.status === 'composition_ready') ? 1 : 0.65,
                       }}
-                      onMouseOver={e => {
-                        if (v.status === 'ready' || v.status === 'failed') {
-                          e.currentTarget.style.background = 'rgba(108,99,255,0.08)';
-                        }
-                      }}
-                      onMouseOut={e => {
-                        e.currentTarget.style.background = 'transparent';
-                      }}
+                      onMouseOver={e => { if (v.status === 'ready' || v.status === 'failed' || v.status === 'composition_ready') e.currentTarget.style.background = 'rgba(108,99,255,0.08)'; }}
+                      onMouseOut={e => { e.currentTarget.style.background = 'transparent'; }}
                     >
                       <span style={{
-                        fontSize: 11,
-                        color: v.status === 'ready' ? '#4ade80' : v.status === 'failed' ? '#f87171' : '#fbbf24',
-                        fontWeight: 700,
-                        textTransform: 'uppercase',
-                        minWidth: 38,
+                        fontSize: 11, fontWeight: 700, textTransform: 'uppercase', minWidth: 38,
+                        color: v.status === 'ready' ? '#4ade80' : v.status === 'composition_ready' ? '#60a5fa' : v.status === 'failed' ? '#f87171' : '#fbbf24',
                       }}>
-                        {v.status === 'ready' ? '✅' : v.status === 'failed' ? '❌' : '⏳'}
+                        {v.status === 'ready' ? '✅' : v.status === 'composition_ready' ? '👁️' : v.status === 'failed' ? '❌' : '⏳'}
                       </span>
-                      <span style={{
-                        flex: 1,
-                        fontSize: 13,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        color: 'var(--text)',
-                      }}>
+                      <span style={{ flex: 1, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>
                         {v.prompt}
                       </span>
-                      <button
-                        onClick={(e) => handleDeleteHistory(e, v.id)}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          color: 'var(--text-secondary)',
-                          cursor: 'pointer',
-                          fontSize: 14,
-                          padding: '2px 6px',
-                          borderRadius: 4,
-                          opacity: 0.5,
-                          transition: 'opacity 0.15s',
-                        }}
-                        onMouseOver={e => {
-                          e.currentTarget.style.opacity = '1';
-                          e.currentTarget.style.color = '#f87171';
-                        }}
-                        onMouseOut={e => {
-                          e.currentTarget.style.opacity = '0.5';
-                          e.currentTarget.style.color = 'var(--text-secondary)';
-                        }}
-                        title="Șterge"
-                      >
-                        ✕
-                      </button>
+                      <button onClick={(e) => handleDeleteHistory(e, v.id)}
+                        style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 14, padding: '2px 6px', borderRadius: 4, opacity: 0.5 }}
+                        onMouseOver={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = '#f87171'; }}
+                        onMouseOut={e => { e.currentTarget.style.opacity = '0.5'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+                        title="Șterge">✕</button>
                     </div>
                   ))}
                 </div>
               </div>
             )}
 
-            {/* Generating state */}
-            {isGenerating && (
-              <div style={{
-                background: 'var(--surface)',
-                border: '1px solid var(--border)',
-                borderRadius: 14,
-                padding: '24px 20px',
-                textAlign: 'center',
-              }}>
+            {/* Generating state (composition phase) */}
+            {mode === 'generating' && (
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '24px 20px', textAlign: 'center' }}>
                 <div style={{
-                  width: 40,
-                  height: 40,
-                  border: '3px solid var(--border)',
-                  borderTopColor: 'var(--accent)',
-                  borderRadius: '50%',
-                  animation: 'spin 0.8s linear infinite',
-                  margin: '0 auto 16px',
+                  width: 40, height: 40, border: '3px solid var(--border)', borderTopColor: 'var(--accent)',
+                  borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 16px',
                 }} />
                 <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>
-                  {status?.step === 'fetching_website'
-                    ? '🌐 Se extrage identitatea vizuală...'
-                    : status?.step === 'generating_composition'
-                    ? '🤖 Se generează conținutul...'
-                    : status?.step === 'generating_audio'
-                    ? '🎵 Se generează nararea audio...'
-                    : status?.step === 'rendering_video'
-                    ? '🎬 Se render-uiește video-ul...'
+                  {status?.step === 'fetching_website' ? '🌐 Se extrage identitatea vizuală...'
+                    : status?.step === 'generating_composition' ? '🤖 Se generează conținutul...'
+                    : status?.step === 'generating_audio' ? '🎵 Se generează nararea audio...'
                     : '⏳ Se pregătește...'}
                 </div>
-
-                {/* Timeline progress */}
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 4,
-                  marginTop: 12,
-                }}>
-                  {timelineSteps.map((s, i) => {
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, marginTop: 12 }}>
+                  {timelineSteps.slice(0, 4).map((s, i) => {
                     const currentStep = status?.step ? (stepGroups[status.step] ?? -1) : -1;
                     const done = currentStep > i;
                     const active = currentStep === i;
                     return (
-                      <div key={s.step} style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                      }}>
+                      <div key={s.step} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                         <div style={{
-                          width: done || active ? 20 : 12,
-                          height: 4,
-                          borderRadius: 2,
-                          background: done
-                            ? 'linear-gradient(90deg, var(--accent), #a78bfa)'
-                            : active
-                            ? 'var(--accent)'
-                            : 'var(--border)',
+                          width: done || active ? 20 : 12, height: 4, borderRadius: 2,
+                          background: done ? 'linear-gradient(90deg, var(--accent), #a78bfa)' : active ? 'var(--accent)' : 'var(--border)',
                           transition: 'all 0.3s',
                         }} />
                       </div>
@@ -880,149 +638,155 @@ export default function Generator() {
               </div>
             )}
 
-            {/* Preview state */}
-            {(mode === 'preview') && videoId && (
+            {/* Composition ready — HTML preview */}
+            {mode === 'preview_composition' && videoId && (
               <div>
                 <div style={{
-                  background: 'var(--surface)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 14,
-                  overflow: 'hidden',
+                  background: 'var(--surface)', border: '1px solid var(--border)',
+                  borderRadius: 14, overflow: 'hidden',
                 }}>
                   {historyStatus && (
-                    <div style={{
-                      padding: '12px 20px 0',
-                      fontSize: 12,
-                      color: 'var(--text-secondary)',
-                    }}>
-                      {historyStatus.tts_text && (
-                        <div style={{ marginBottom: 8 }}>
-                          <strong>Narare:</strong> {historyStatus.tts_text}
-                        </div>
-                      )}
-                      {historyStatus.tts_voice && (
-                        <div style={{ marginBottom: 8 }}>
-                          <strong>Voce:</strong> {historyStatus.tts_voice}
-                        </div>
-                      )}
+                    <div style={{ padding: '12px 20px 0', fontSize: 12, color: 'var(--text-secondary)' }}>
+                      {historyStatus.tts_text && <div style={{ marginBottom: 8 }}><strong>Narare:</strong> {historyStatus.tts_text}</div>}
+                      {historyStatus.tts_voice && <div style={{ marginBottom: 8 }}><strong>Voce:</strong> {historyStatus.tts_voice}</div>}
                     </div>
                   )}
                   <div style={{ padding: 20 }}>
-                    <video
-                      ref={previewRef}
-                      controls
-                      autoPlay
+                    <iframe
+                      src={`${API}/api/video/${videoId}/preview`}
                       style={{
-                        width: '100%',
-                        borderRadius: 10,
-                        background: '#000',
-                        maxHeight: 400,
+                        width: '100%', borderRadius: 10, background: '#000',
+                        aspectRatio: `${width}/${height}`, maxHeight: 400, border: 0,
                       }}
-                    >
-                      <source src={`${API}/api/video/${videoId}/stream`} type="video/mp4" />
-                    </video>
+                      title="Composition preview"
+                      sandbox="allow-scripts allow-same-origin"
+                    />
                   </div>
-
-                  {/* Regenerate and Copy URL */}
-                  <div style={{
-                    display: 'flex',
-                    gap: 10,
-                    padding: '0 20px 20px',
-                  }}>
-                    <button
-                      onClick={handleRegenerate}
-                      disabled={isGenerating}
+                  <div style={{ display: 'flex', gap: 10, padding: '0 20px 20px' }}>
+                    <button onClick={handleRenderMP4}
                       style={{
-                        flex: 1,
-                        padding: '12px 20px',
-                        background: 'linear-gradient(135deg, var(--accent), #a78bfa)',
-                        color: '#fff',
-                        border: 'none',
-                        borderRadius: 10,
-                        cursor: isGenerating ? 'not-allowed' : 'pointer',
-                        fontSize: 14,
-                        fontWeight: 600,
-                        opacity: isGenerating ? 0.5 : 1,
+                        flex: 1, padding: '12px 20px',
+                        background: 'linear-gradient(135deg, #22c55e, #16a34a)',
+                        color: '#fff', border: 'none', borderRadius: 10,
+                        cursor: 'pointer', fontSize: 14, fontWeight: 600,
                         transition: 'filter 0.15s',
                       }}
+                      onMouseOver={e => e.currentTarget.style.filter = 'brightness(1.15)'}
+                      onMouseOut={e => e.currentTarget.style.filter = 'none'}
                     >
-                      {isGenerating ? '⏳ Se generează...' : '🔄 Regenerare'}
+                      ⬇️ Download MP4
                     </button>
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(`https://video.canti.site/api/video/${videoId}/stream`);
-                        setCopiedUrl(true);
-                        setTimeout(() => setCopiedUrl(false), 2000);
-                      }}
+                    <button onClick={handleRegenerate}
+                      style={secondaryBtnStyle}
+                    >🔄 Regenerare</button>
+                  </div>
+                  {error && (
+                    <div style={{ padding: '0 20px 16px', fontSize: 13, color: '#f87171' }}>
+                      ❌ {error}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Rendering MP4 state */}
+            {mode === 'rendering' && (
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '24px 20px', textAlign: 'center' }}>
+                <div style={{
+                  width: 40, height: 40, border: '3px solid var(--border)', borderTopColor: '#22c55e',
+                  borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 16px',
+                }} />
+                <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>
+                  🎬 Se generează videoclipul MP4...
+                </div>
+                <div style={{
+                  height: 4, background: 'var(--border)', borderRadius: 2,
+                  marginTop: 12, overflow: 'hidden',
+                }}>
+                  <div style={{
+                    height: '100%', width: '60%', borderRadius: 2,
+                    background: 'linear-gradient(90deg, #22c55e, #16a34a)',
+                    animation: 'shimmer 2s infinite',
+                  }} />
+                </div>
+                <style>{`@keyframes shimmer { 0% { width: 20%; } 50% { width: 70%; } 100% { width: 20%; } }`}</style>
+              </div>
+            )}
+
+            {/* Preview — MP4 ready */}
+            {(mode === 'preview') && videoId && (
+              <div>
+                <div style={{
+                  background: 'var(--surface)', border: '1px solid var(--border)',
+                  borderRadius: 14, overflow: 'hidden',
+                }}>
+                  {historyStatus && (
+                    <div style={{ padding: '12px 20px 0', fontSize: 12, color: 'var(--text-secondary)' }}>
+                      {historyStatus.tts_text && <div style={{ marginBottom: 8 }}><strong>Narare:</strong> {historyStatus.tts_text}</div>}
+                      {historyStatus.tts_voice && <div style={{ marginBottom: 8 }}><strong>Voce:</strong> {historyStatus.tts_voice}</div>}
+                    </div>
+                  )}
+                  <div style={{ padding: 20 }}>
+                    <video ref={previewRef} controls autoPlay
+                      style={{ width: '100%', borderRadius: 10, background: '#000', maxHeight: 400 }}>
+                      <source src={`${API}/api/video/${videoId}/download`} type="video/mp4" />
+                    </video>
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, padding: '0 20px 20px' }}>
+                    <button onClick={handleDownload}
                       style={{
-                        padding: '12px 20px',
-                        background: 'transparent',
-                        border: '1px solid var(--border)',
-                        borderRadius: 10,
-                        cursor: 'pointer',
-                        fontSize: 14,
-                        fontWeight: 600,
+                        flex: 1, padding: '12px 20px',
+                        background: 'linear-gradient(135deg, var(--accent), #a78bfa)',
+                        color: '#fff', border: 'none', borderRadius: 10,
+                        cursor: 'pointer', fontSize: 14, fontWeight: 600,
+                        transition: 'filter 0.15s',
+                      }}
+                      onMouseOver={e => e.currentTarget.style.filter = 'brightness(1.15)'}
+                      onMouseOut={e => e.currentTarget.style.filter = 'none'}
+                    >⬇️ Download MP4</button>
+                    <button onClick={() => {
+                      navigator.clipboard.writeText(`${window.location.origin}/api/video/${videoId}/download`);
+                      setCopiedUrl(true);
+                      setTimeout(() => setCopiedUrl(false), 2000);
+                    }}
+                      style={{
+                        padding: '12px 20px', background: 'transparent',
+                        border: '1px solid var(--border)', borderRadius: 10,
+                        cursor: 'pointer', fontSize: 14, fontWeight: 600,
                         color: copiedUrl ? '#4ade80' : 'var(--text-secondary)',
                         transition: 'all 0.15s',
                         whiteSpace: 'nowrap',
                       }}
-                    >
-                      {copiedUrl ? '✅ Copiat!' : '📋 Copy URL'}
-                    </button>
+                    >{copiedUrl ? '✅ Copiat!' : '📋 Copy URL'}</button>
                   </div>
                 </div>
 
-                {/* Error display */}
                 {error && (
                   <div style={{
-                    marginTop: 12,
-                    padding: '12px 16px',
-                    background: 'rgba(248,113,113,0.1)',
-                    border: '1px solid rgba(248,113,113,0.3)',
-                    borderRadius: 10,
-                    color: '#f87171',
-                    fontSize: 13,
+                    marginTop: 12, padding: '12px 16px',
+                    background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)',
+                    borderRadius: 10, color: '#f87171', fontSize: 13,
                   }}>
                     ❌ {error}
                   </div>
                 )}
 
-                {/* Debug info */}
                 {(isDebug || debugOpen) && debugHtml && (
                   <div style={{ marginTop: 12 }}>
-                    <button
-                      onClick={() => setShowDetails(prev => !prev)}
+                    <button onClick={() => setShowDetails(prev => !prev)}
                       style={{
-                        width: '100%',
-                        padding: '8px 16px',
-                        background: 'transparent',
-                        border: '1px solid var(--border)',
-                        borderRadius: 8,
-                        cursor: 'pointer',
-                        fontSize: 12,
-                        color: 'var(--text-secondary)',
-                        fontWeight: 600,
-                        textAlign: 'left',
+                        width: '100%', padding: '8px 16px', background: 'transparent',
+                        border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer',
+                        fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600, textAlign: 'left',
                       }}
-                    >
-                      🔍 {showDetails ? 'Ascunde' : 'Arată'} compoziția generată
-                    </button>
+                    >🔍 {showDetails ? 'Ascunde' : 'Arată'} compoziția generată</button>
                     {showDetails && (
                       <div style={{
-                        marginTop: 8,
-                        padding: 16,
-                        background: '#0d0d0d',
-                        border: '1px solid var(--border)',
-                        borderRadius: 10,
-                        maxHeight: 400,
-                        overflow: 'auto',
-                        fontSize: 12,
-                        color: '#aaa',
-                        fontFamily: 'monospace',
-                        whiteSpace: 'pre-wrap',
-                      }}>
-                        {debugHtml}
-                      </div>
+                        marginTop: 8, padding: 16, background: '#0d0d0d',
+                        border: '1px solid var(--border)', borderRadius: 10,
+                        maxHeight: 400, overflow: 'auto', fontSize: 12, color: '#aaa',
+                        fontFamily: 'monospace', whiteSpace: 'pre-wrap',
+                      }}>{debugHtml}</div>
                     )}
                   </div>
                 )}

@@ -186,7 +186,8 @@ router.get('/:id/status', async (req, res) => {
       prompt: video.prompt,
       tts_text: video.tts_text || '',
       tts_voice: video.tts_voice || 'Kore',
-      previewUrl: video.status === 'ready' ? `/api/video/${video.id}/preview` : null,
+      previewUrl: (video.status === 'composition_ready' || video.status === 'ready')
+        ? `/api/video/${video.id}/preview` : null,
       downloadUrl: video.status === 'ready' ? `/api/video/${video.id}/download` : null,
       error: video.error,
       createdAt: video.created_at,
@@ -196,7 +197,8 @@ router.get('/:id/status', async (req, res) => {
   }
 });
 
-// GET /api/video/:id/preview
+// GET /api/video/:id/preview — serves composition HTML
+// Works for both composition_ready (preview) and ready (preview/done)
 router.get('/:id/preview', async (req, res) => {
   try {
     const db = await getDb();
@@ -204,17 +206,131 @@ router.get('/:id/preview', async (req, res) => {
     await saveAndClose(db);
 
     if (!video) return res.status(404).json({ error: 'Not found' });
-    if (video.status !== 'ready') return res.status(400).json({ error: 'Video not ready yet' });
+    if (video.status !== 'composition_ready' && video.status !== 'ready') {
+      return res.status(400).json({ error: 'Preview not available yet' });
+    }
     if (!video.composition_path) return res.status(400).json({ error: 'No composition path' });
 
     const htmlPath = path.join(video.composition_path, 'index.html');
-    const html = await fs.readFile(htmlPath, 'utf-8');
+    let html = await fs.readFile(htmlPath, 'utf-8');
+
+    // Inject preview player script to auto-play the GSAP timeline
+    const previewScript = `
+<script>
+(function() {
+  // Auto-play the GSAP timeline for preview
+  var checkTimeline = setInterval(function() {
+    if (window.__timelines && window.__timelines["main"]) {
+      clearInterval(checkTimeline);
+      var tl = window.__timelines["main"];
+      tl.play();
+      // Loop the timeline
+      tl.eventCallback("onComplete", function() {
+        this.restart();
+      });
+    }
+  }, 100);
+  // Fallback: try after DOM ready
+  document.addEventListener('DOMContentLoaded', function() {
+    setTimeout(function() {
+      if (window.__timelines && window.__timelines["main"]) {
+        window.__timelines["main"].play();
+      }
+    }, 500);
+  });
+})();
+</script>
+</body>`;
+
+    html = html.replace('</body>', previewScript);
+
     res.set('Content-Type', 'text/html');
     res.send(html);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
+
+// POST /api/video/:id/render — trigger MP4 render from existing composition
+// Starts render in background, returns immediately
+router.post('/:id/render', async (req, res) => {
+  try {
+    const db = await getDb();
+    const video = queryOne(db, 'SELECT * FROM videos WHERE id = ?', [req.params.id]);
+    await saveAndClose(db);
+
+    if (!video) return res.status(404).json({ error: 'Not found' });
+    if (video.status !== 'composition_ready') {
+      return res.status(400).json({ error: `Cannot render: current status is '${video.status}'. Expected 'composition_ready'.` });
+    }
+    if (!video.composition_path) return res.status(400).json({ error: 'No composition path' });
+
+    const renderProgress = JSON.stringify({ step: 'rendering_video', message: '🎬 Se generează videoclipul...', pct: 50 });
+
+    // Mark as rendering immediately
+    {
+      const db2 = await getDb();
+      db2.run("UPDATE videos SET status = 'rendering', progress = ?, updated_at = datetime('now') WHERE id = ?", [renderProgress, video.id]);
+      await saveAndClose(db2);
+    }
+
+    // Start render in background
+    renderInBackground(video.id, video.composition_path, video.quality || 'draft');
+
+    res.status(202).json({
+      videoId: video.id,
+      status: 'rendering',
+      progress: { step: 'rendering_video', message: '🎬 Se generează videoclipul...', pct: 50 },
+    });
+  } catch (err) {
+    console.error('[render] error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Background render — takes existing composition and renders MP4
+async function renderInBackground(videoId, compositionPath, quality) {
+  try {
+    const { HyperFramesEngine } = await import('../services/hyperframes.js');
+    const engine = new HyperFramesEngine(compositionPath);
+
+    await updateProgress(videoId, 'rendering_video', '🎬 Se generează videoclipul...', 50);
+
+    const renderResult = await engine.render({ quality: quality || 'draft' });
+
+    await updateProgress(videoId, 'finalizing', '📦 Se finalizează...', 95);
+
+    const db = await getDb();
+    if (renderResult.ok) {
+      let debugMerged = {};
+      try {
+        const s2 = db.prepare('SELECT debug_info FROM videos WHERE id = ?');
+        s2.bind([videoId]);
+        if (s2.step()) debugMerged = JSON.parse(s2.getAsObject().debug_info || '{}');
+        s2.free();
+      } catch {}
+      debugMerged.render = { ok: true, path: renderResult.outputPath };
+      debugMerged._updated = new Date().toISOString();
+      db.run('UPDATE videos SET debug_info = ? WHERE id = ?', [JSON.stringify(debugMerged), videoId]);
+      const doneProgress = JSON.stringify({ step: 'ready', message: '✅ Video gata!', pct: 100 });
+      db.run(`UPDATE videos SET status = 'ready', render_path = ?, progress = ?, updated_at = datetime('now') WHERE id = ?`,
+        [renderResult.outputPath, doneProgress, videoId]);
+    } else {
+      const failProgress = JSON.stringify({ step: 'failed', message: renderResult.error || 'Render failed', pct: 0 });
+      db.run(`UPDATE videos SET status = 'failed', error = ?, progress = ?, updated_at = datetime('now') WHERE id = ?`,
+        [renderResult.error || 'Render failed', failProgress, videoId]);
+    }
+    await saveAndClose(db);
+  } catch (err) {
+    try {
+      const failProgress = JSON.stringify({ step: 'failed', message: err.message, pct: 0 });
+      const db = await getDb();
+      db.run(`UPDATE videos SET status = 'failed', error = ?, progress = ?, updated_at = datetime('now') WHERE id = ?`,
+        [err.message, failProgress, videoId]);
+      await saveAndClose(db);
+    } catch {}
+  }
+}
 
 // GET /api/video/:id/download
 router.get('/:id/download', async (req, res) => {
@@ -566,34 +682,32 @@ async function generateInBackground(videoId, prompt, options) {
       await updateProgress(videoId, 'validated', '✅ Conținut validat', 45);
     }
 
-    await updateProgress(videoId, 'rendering_video', '🎬 Se generează videoclipul...', 50);
+    // --- STOP HERE — composition is ready, user previews first ---
+    // Composition, TTS, subtitles are all saved in workDir
+    // Now set status to 'composition_ready' instead of rendering MP4 immediately
 
-    const renderResult = await engine.render({ quality: options.quality || 'draft' });
+    // Save final composition metadata
+    const dbReady = await getDb();
 
-    await updateProgress(videoId, 'finalizing', '📦 Se finalizează...', 95);
+    // Save composition path, tts_path, in workDir path
+    let debugMerged = {};
+    try {
+      const s2 = dbReady.prepare('SELECT debug_info FROM videos WHERE id = ?');
+      s2.bind([videoId]);
+      if (s2.step()) debugMerged = JSON.parse(s2.getAsObject().debug_info || '{}');
+      s2.free();
+    } catch {}
+    debugMerged.composition_done = { workDir };
+    debugMerged._updated = new Date().toISOString();
 
-    const db2 = await getDb();
-    if (renderResult.ok) {
-      // Store render debug on same connection (avoid race with updateDebug)
-      let debugMerged = {};
-      try {
-        const s2 = db2.prepare('SELECT debug_info FROM videos WHERE id = ?');
-        s2.bind([videoId]);
-        if (s2.step()) debugMerged = JSON.parse(s2.getAsObject().debug_info || '{}');
-        s2.free();
-      } catch {}
-      debugMerged.render = { ok: true, path: renderResult.outputPath };
-      debugMerged._updated = new Date().toISOString();
-      db2.run('UPDATE videos SET debug_info = ? WHERE id = ?', [JSON.stringify(debugMerged), videoId]);
-      const doneProgress = JSON.stringify({ step: 'ready', message: '✅ Video gata!', pct: 100 });
-      db2.run(`UPDATE videos SET status = 'ready', render_path = ?, progress = ?, updated_at = datetime('now') WHERE id = ?`,
-        [renderResult.outputPath, doneProgress, videoId]);
-    } else {
-      const failProgress = JSON.stringify({ step: 'failed', message: renderResult.error || 'Render failed', pct: 0 });
-      db2.run(`UPDATE videos SET status = 'failed', error = ?, progress = ?, updated_at = datetime('now') WHERE id = ?`,
-        [renderResult.error || 'Render failed', failProgress, videoId]);
-    }
-    await saveAndClose(db2);
+    const readyProgress = JSON.stringify({ step: 'composition_ready', message: '✅ Conținut gata — verifică previzualizarea', pct: 45 });
+    dbReady.run(
+      `UPDATE videos SET status = 'composition_ready', composition_path = ?, progress = ?, debug_info = ?, updated_at = datetime('now') WHERE id = ?`,
+      [workDir, readyProgress, JSON.stringify(debugMerged), videoId]
+    );
+    await saveAndClose(dbReady);
+
+    console.log(`[generate] Composition ready for ${videoId}, waiting for user to trigger render`);
   } catch (err) {
     try {
       const failProgress = JSON.stringify({ step: 'failed', message: err.message, pct: 0 });
