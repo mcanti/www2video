@@ -81,18 +81,24 @@ async function updateProgress(videoId, step, message, pct) {
 async function updateDebug(videoId, info) {
   try {
     const db = await getDb();
-    // Read existing debug_info and merge
+    // Read existing debug_info and merge (use prepare, not exec — exec ignores params)
     let existing = {};
     try {
-      const row = db.exec('SELECT debug_info FROM videos WHERE id = ?', [videoId]);
-      if (row.length > 0 && row[0].values.length > 0) {
-        existing = JSON.parse(row[0].values[0][0] || '{}');
+      const stmt = db.prepare('SELECT debug_info FROM videos WHERE id = ?');
+      stmt.bind([videoId]);
+      if (stmt.step()) {
+        existing = JSON.parse(stmt.getAsObject().debug_info || '{}');
       }
-    } catch {}
+      stmt.free();
+    } catch (e) {
+      console.error('[updateDebug] read error:', e.message);
+    }
     const merged = { ...existing, ...info, _updated: new Date().toISOString() };
     db.run('UPDATE videos SET debug_info = ?, updated_at = datetime(\'now\') WHERE id = ?', [JSON.stringify(merged), videoId]);
     await saveAndClose(db);
-  } catch {}
+  } catch (e) {
+    console.error('[updateDebug] error:', e.message);
+  }
 }
 
 // POST /api/video/generate
@@ -215,7 +221,7 @@ router.post('/from-website', async (req, res) => {
       [videoId, prompt || `Video for ${url}`, url, initialProgress]);
     await saveAndClose(db);
 
-    generateFromWebsite(videoId, url, prompt, { duration, audioPrompt });
+    generateFromWebsite(videoId, url, prompt, { duration, audioPrompt, useAudio: options.useAudio });
 
     res.status(202).json({ videoId, status: 'generating', progress: { step: 'queued', message: 'In queue...', pct: 0 } });
   } catch (err) {
@@ -355,7 +361,17 @@ async function generateInBackground(videoId, prompt, options) {
 
     const db2 = await getDb();
     if (renderResult.ok) {
-      await updateDebug(videoId, { render: { ok: true, path: renderResult.outputPath } });
+      // Store render debug on same connection (avoid race with updateDebug)
+      let debugMerged = {};
+      try {
+        const s2 = db2.prepare('SELECT debug_info FROM videos WHERE id = ?');
+        s2.bind([videoId]);
+        if (s2.step()) debugMerged = JSON.parse(s2.getAsObject().debug_info || '{}');
+        s2.free();
+      } catch {}
+      debugMerged.render = { ok: true, path: renderResult.outputPath };
+      debugMerged._updated = new Date().toISOString();
+      db2.run('UPDATE videos SET debug_info = ? WHERE id = ?', [JSON.stringify(debugMerged), videoId]);
       const doneProgress = JSON.stringify({ step: 'ready', message: '✅ Video gata!', pct: 100 });
       db2.run(`UPDATE videos SET status = 'ready', render_path = ?, progress = ?, updated_at = datetime('now') WHERE id = ?`,
         [renderResult.outputPath, doneProgress, videoId]);
@@ -425,6 +441,7 @@ async function generateFromWebsite(videoId, url, userPrompt, options = {}) {
       websiteName: tokens.title || new URL(url).hostname,
       themeColor: themeColor,
     });
+    await updateDebug(videoId, { composition_html: composition.substring(0, 5000) });
     await engine.writeComposition(composition);
 
     // Generate TTS audio if audioPrompt provided or auto-generate
@@ -441,6 +458,7 @@ async function generateFromWebsite(videoId, url, userPrompt, options = {}) {
         ]);
         narrationText = result.response.text().trim();
         console.log('[website] auto-narration:', narrationText.slice(0, 100));
+        await updateDebug(videoId, { auto_narration: narrationText });
         await updateProgress(videoId, 'generating_audio', '🎵 Text audio creat', 34);
       } catch (e) {
         console.error('[website] auto-narration error:', e.message);
@@ -477,7 +495,8 @@ async function generateFromWebsite(videoId, url, userPrompt, options = {}) {
     await saveAndClose(db);
 
     await updateProgress(videoId, 'validating', '🔍 Se validează...', 40);
-    await engine.lint();
+    const lintResult = await engine.lint();
+    await updateDebug(videoId, { lint: lintResult });
 
     await updateProgress(videoId, 'rendering_video', '🎬 Se generează videoclipul...', 50);
     const renderResult = await engine.render({ quality: 'draft' });
@@ -485,6 +504,17 @@ async function generateFromWebsite(videoId, url, userPrompt, options = {}) {
     await updateProgress(videoId, 'finalizing', '📦 Se finalizează...', 95);
     const db2 = await getDb();
     if (renderResult.ok) {
+      // Store render debug on same connection (avoid race with updateDebug)
+      let debugMerged = {};
+      try {
+        const s2 = db2.prepare('SELECT debug_info FROM videos WHERE id = ?');
+        s2.bind([videoId]);
+        if (s2.step()) debugMerged = JSON.parse(s2.getAsObject().debug_info || '{}');
+        s2.free();
+      } catch {}
+      debugMerged.render = { ok: true, path: renderResult.outputPath };
+      debugMerged._updated = new Date().toISOString();
+      db2.run('UPDATE videos SET debug_info = ? WHERE id = ?', [JSON.stringify(debugMerged), videoId]);
       const doneProgress = JSON.stringify({ step: 'ready', message: '✅ Video gata!', pct: 100 });
       db2.run(`UPDATE videos SET status = 'ready', render_path = ?, progress = ?, updated_at = datetime('now') WHERE id = ?`,
         [renderResult.outputPath, doneProgress, videoId]);

@@ -68,7 +68,7 @@ Scene 3 (7-10s): Strong CTA panel. "Ready to Transform Your Workflow?" in large 
   duration: 10,
   useAudio: true,
   audioPrompt: "Introducing LumiBot - your intelligent AI workflow assistant. Automate repetitive tasks, collaborate seamlessly with your team, and keep your projects running 24/7. Ready to transform how you work? Visit Lumi.bot and get started today.",
-  useWebsite: false,
+  useWebsite: true,
   sourceUrl: 'https://lumi.bot',
 };
 
