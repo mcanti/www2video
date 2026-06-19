@@ -148,20 +148,16 @@ export default function Generator() {
     setError('');
     setDebugHtml('');
 
-    const body = { prompt: text, options: { quality: 'draft', duration, useAudio } };
-    if (audioPrompt.trim()) body.options.audioPrompt = audioPrompt.trim();
-    if (useWebsite && url.trim()) body.sourceUrl = url.trim();
+    const options = { quality: 'draft', duration, useAudio };
+    if (audioPrompt.trim()) options.audioPrompt = audioPrompt.trim();
+    if (useWebsite && url.trim()) options.sourceUrl = url.trim();
+    const body = { prompt: text, options };
 
     try {
-      const endpoint = useWebsite ? '/api/video/from-website' : '/api/video/generate';
-      const reqBody = useWebsite
-        ? { url: url.trim(), prompt: text, options: { quality: 'draft', duration, useAudio, audioPrompt: audioPrompt.trim() } }
-        : body;
-
-      const res = await fetch(`${API}${endpoint}`, {
+      const res = await fetch(`${API}/api/video/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(reqBody),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (data.error) { setError(data.error); setMode('idle'); return; }

@@ -114,13 +114,19 @@ router.post('/generate', async (req, res) => {
     const quality = options.quality || 'draft';
     const duration = Math.min(Math.max(parseInt(options.duration) || 10, 1), 120);
     const audioPrompt = options.audioPrompt || '';
+    const sourceUrl = options.sourceUrl || '';
     const initialProgress = JSON.stringify({ step: 'queued', message: 'In queue...', pct: 0 });
 
-    db.run(`INSERT INTO videos (id, prompt, quality, status, progress) VALUES (?, ?, ?, 'generating', ?)`,
-      [videoId, prompt, quality, initialProgress]);
+    if (sourceUrl) {
+      db.run(`INSERT INTO videos (id, prompt, quality, status, source_url, progress) VALUES (?, ?, ?, 'generating', ?, ?)`,
+        [videoId, prompt, quality, sourceUrl, initialProgress]);
+    } else {
+      db.run(`INSERT INTO videos (id, prompt, quality, status, progress) VALUES (?, ?, ?, 'generating', ?)`,
+        [videoId, prompt, quality, initialProgress]);
+    }
     await saveAndClose(db);
 
-    generateInBackground(videoId, prompt, { ...options, duration, audioPrompt });
+    generateInBackground(videoId, prompt, { ...options, duration, audioPrompt, sourceUrl });
 
     res.status(202).json({
       videoId,
@@ -205,29 +211,6 @@ router.get('/:id/download', async (req, res) => {
   }
 });
 
-// POST /api/video/from-website
-router.post('/from-website', async (req, res) => {
-  try {
-    const { url, prompt, options = {} } = req.body;
-    if (!url) return res.status(400).json({ error: 'URL is required' });
-
-    const db = await getDb();
-    const videoId = crypto.randomUUID();
-    const duration = Math.min(Math.max(parseInt(options.duration) || 10, 1), 120);
-    const audioPrompt = options.audioPrompt || '';
-    const initialProgress = JSON.stringify({ step: 'fetching_website', message: 'Fetching website...', pct: 0 });
-
-    db.run(`INSERT INTO videos (id, prompt, status, source_url, progress) VALUES (?, ?, 'generating', ?, ?)`,
-      [videoId, prompt || `Video for ${url}`, url, initialProgress]);
-    await saveAndClose(db);
-
-    generateFromWebsite(videoId, url, prompt, { duration, audioPrompt, useAudio: options.useAudio });
-
-    res.status(202).json({ videoId, status: 'generating', progress: { step: 'queued', message: 'In queue...', pct: 0 } });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // POST /api/video/tts
 router.post('/tts', async (req, res) => {
@@ -267,17 +250,62 @@ async function generateInBackground(videoId, prompt, options) {
     const duration = options.duration || 10;
     const audioPrompt = options.audioPrompt || '';
 
-    await updateProgress(videoId, 'initializing', '📁 Se pregătește proiectul...', 2);
+    // --- Website scraping (optional, when sourceUrl is provided) ---
+    let brandColors = null;
+    let brandFonts = null;
+    let websiteName = null;
+    let themeColor = null;
+    let enrichedPrompt = prompt;
+
+    if (options.sourceUrl) {
+      await updateProgress(videoId, 'fetching_website', '🌐 Se preia site-ul...', 1);
+      let renderedHTML = '';
+      try {
+        renderedHTML = await fetchRenderedDOM(options.sourceUrl);
+      } catch {
+        try {
+          const response = await fetch(options.sourceUrl, { signal: AbortSignal.timeout(10000) });
+          renderedHTML = await response.text();
+        } catch {}
+      }
+
+      await updateProgress(videoId, 'extracting_identity', '🎨 Se extrage identitatea vizuală...', 2);
+      const tokens = extractBrandTokens(renderedHTML);
+      themeColor = tokens.themeColor || (tokens.colors.length > 0 ? tokens.colors[0] : null);
+      brandColors = tokens.colors;
+      brandFonts = tokens.fonts;
+
+      if (tokens.title) {
+        enrichedPrompt = `Create a promotional video for: ${tokens.title} (${options.sourceUrl})\n\n${enrichedPrompt}`;
+      }
+      if (tokens.description) {
+        enrichedPrompt += `\n\nAbout: ${tokens.description}`;
+      }
+      websiteName = tokens.title || new URL(options.sourceUrl).hostname;
+
+      // Save brand colors to DB immediately
+      const dbBrand = await getDb();
+      dbBrand.run('UPDATE videos SET brand_colors = ? WHERE id = ?', [JSON.stringify(tokens.colors), videoId]);
+      await saveAndClose(dbBrand);
+    }
+
+    await updateProgress(videoId, 'initializing', '📁 Se pregătește proiectul...', 5);
     await fs.mkdir(PROJECTS_DIR, { recursive: true });
 
     const { engine, workDir } = await createEngine(PROJECTS_DIR);
-    await updateProgress(videoId, 'initialized', '📁 Proiect creat', 5);
+    await updateProgress(videoId, 'initialized', '📁 Proiect creat', 8);
 
     await updateProgress(videoId, 'generating_composition', '🤖 Se generează conținutul video...', 10);
     await engine.init('blank');
     await updateProgress(videoId, 'composition_ai', '🤖 Conținut generat cu AI', 15);
 
-    const html = await composeFromPrompt(prompt, { ...options, duration });
+    const compositionOptions = { ...options, duration };
+    if (brandColors) compositionOptions.brandColors = brandColors;
+    if (brandFonts) compositionOptions.brandFonts = brandFonts;
+    if (websiteName) compositionOptions.websiteName = websiteName;
+    if (themeColor) compositionOptions.themeColor = themeColor;
+
+    const html = await composeFromPrompt(enrichedPrompt, compositionOptions);
     await updateDebug(videoId, { composition_html: html.substring(0, 5000) });
     await updateProgress(videoId, 'composition_done', '✅ Conținut generat', 30);
 
@@ -295,7 +323,7 @@ async function generateInBackground(videoId, prompt, options) {
         const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
         const result = await model.generateContent([
           { text: 'Generate a short, professional voiceover narration script (in Romanian) for this video. Keep it under 30 words, spoken clearly. Return ONLY the spoken text, no formatting:' },
-          { text: `Video content: ${prompt}` },
+          { text: `Video content: ${enrichedPrompt}` },
         ]);
         narrationText = result.response.text().trim();
         console.log('[generate] auto-narration:', narrationText.slice(0, 100));
@@ -392,148 +420,5 @@ async function generateInBackground(videoId, prompt, options) {
   }
 }
 
-async function generateFromWebsite(videoId, url, userPrompt, options = {}) {
-  try {
-    await updateProgress(videoId, 'fetching_website', '🌐 Se preia site-ul...', 5);
-    let renderedHTML = '';
-    let fromChrome = false;
-
-    // Try Chrome headless first (handles SPAs/JS sites)
-    try {
-      renderedHTML = await fetchRenderedDOM(url);
-      fromChrome = true;
-    } catch {
-      // Fallback: simple fetch
-      try {
-        const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
-        renderedHTML = await response.text();
-        fromChrome = false;
-      } catch {}
-    }
-
-    await updateProgress(videoId, 'extracting_identity', '🎨 Se extrage identitatea vizuală...', 10);
-
-    // Extract brand tokens from rendered HTML
-    const tokens = extractBrandTokens(renderedHTML);
-    const themeColor = tokens.themeColor || (tokens.colors.length > 0 ? tokens.colors[0] : null);
-
-    // Build enriched prompt
-    let enrichedPrompt = userPrompt || `Create a promotional video for ${url}`;
-    if (tokens.title) {
-      enrichedPrompt = `Create a promotional video for: ${tokens.title} (${url})\n\n${enrichedPrompt}`;
-    }
-    if (tokens.description) {
-      enrichedPrompt += `\n\nAbout: ${tokens.description}`;
-    }
-
-    const duration = options.duration || 10;
-    const audioPrompt = options.audioPrompt || '';
-
-    await updateProgress(videoId, 'generating_composition', '🤖 Se generează conținutul video...', 20);
-    await fs.mkdir(PROJECTS_DIR, { recursive: true });
-    const { engine, workDir } = await createEngine(PROJECTS_DIR);
-    await engine.init('blank');
-
-    const composition = await composeFromPrompt(enrichedPrompt, {
-      duration,
-      brandColors: tokens.colors,
-      brandFonts: tokens.fonts,
-      websiteName: tokens.title || new URL(url).hostname,
-      themeColor: themeColor,
-    });
-    await updateDebug(videoId, { composition_html: composition.substring(0, 5000) });
-    await engine.writeComposition(composition);
-
-    // Generate TTS audio if audioPrompt provided or auto-generate
-    let ttsPath = null;
-    let narrationText = audioPrompt;
-    if (!narrationText.trim() && options.useAudio) {
-      await updateProgress(videoId, 'generating_audio', '🎵 Se creează textul audio...', 33);
-      try {
-        const genAI = new (await import('@google/generative-ai')).GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
-        const result = await model.generateContent([
-          { text: 'Generate a short, professional voiceover narration script (in Romanian) for this video. Keep it under 30 words, spoken clearly. Return ONLY the spoken text, no formatting:' },
-          { text: `Video content: ${enrichedPrompt}` },
-        ]);
-        narrationText = result.response.text().trim();
-        console.log('[website] auto-narration:', narrationText.slice(0, 100));
-        await updateDebug(videoId, { auto_narration: narrationText });
-        await updateProgress(videoId, 'generating_audio', '🎵 Text audio creat', 34);
-      } catch (e) {
-        console.error('[website] auto-narration error:', e.message);
-      }
-    }
-
-    if (narrationText.trim()) {
-      await updateProgress(videoId, 'generating_audio', '🎵 Se generează audio...', 35);
-      try {
-        const audioDir = path.join(workDir, 'audio');
-        await fs.mkdir(audioDir, { recursive: true });
-        const audioResult = await generateTTS(narrationText);
-        if (audioResult instanceof ArrayBuffer || audioResult instanceof Buffer) {
-          ttsPath = path.join(audioDir, 'narration.mp3');
-          await fs.writeFile(ttsPath, Buffer.from(audioResult));
-        }
-      } catch (e) {
-        console.error('[website] TTS error:', e.message);
-      }
-    }
-
-    if (ttsPath) {
-      const compositionPath = path.join(workDir, 'index.html');
-      let c = await fs.readFile(compositionPath, 'utf-8');
-      c = c.replace('</body>', `<audio id="narration" src="audio/narration.mp3" data-start="0" data-duration="${duration}" data-track-index="10" data-volume="0.8"></audio>\n</body>`);
-      await fs.writeFile(compositionPath, c);
-    }
-
-    await updateProgress(videoId, 'saving_identity', '💾 Se salvează...', 38);
-    const db = await getDb();
-    db.run('UPDATE videos SET composition_path = ?, brand_colors = ? WHERE id = ?',
-      [workDir, JSON.stringify(tokens.colors), videoId]);
-    if (ttsPath) db.run('UPDATE videos SET tts_path = ? WHERE id = ?', [ttsPath, videoId]);
-    await saveAndClose(db);
-
-    await updateProgress(videoId, 'validating', '🔍 Se validează...', 40);
-    const lintResult = await engine.lint();
-    await updateDebug(videoId, { lint: lintResult });
-
-    await updateProgress(videoId, 'rendering_video', '🎬 Se generează videoclipul...', 50);
-    const renderResult = await engine.render({ quality: 'draft' });
-
-    await updateProgress(videoId, 'finalizing', '📦 Se finalizează...', 95);
-    const db2 = await getDb();
-    if (renderResult.ok) {
-      // Store render debug on same connection (avoid race with updateDebug)
-      let debugMerged = {};
-      try {
-        const s2 = db2.prepare('SELECT debug_info FROM videos WHERE id = ?');
-        s2.bind([videoId]);
-        if (s2.step()) debugMerged = JSON.parse(s2.getAsObject().debug_info || '{}');
-        s2.free();
-      } catch {}
-      debugMerged.render = { ok: true, path: renderResult.outputPath };
-      debugMerged._updated = new Date().toISOString();
-      db2.run('UPDATE videos SET debug_info = ? WHERE id = ?', [JSON.stringify(debugMerged), videoId]);
-      const doneProgress = JSON.stringify({ step: 'ready', message: '✅ Video gata!', pct: 100 });
-      db2.run(`UPDATE videos SET status = 'ready', render_path = ?, progress = ?, updated_at = datetime('now') WHERE id = ?`,
-        [renderResult.outputPath, doneProgress, videoId]);
-    } else {
-      const failProgress = JSON.stringify({ step: 'failed', message: renderResult.error || 'Render failed', pct: 0 });
-      db2.run(`UPDATE videos SET status = 'failed', error = ?, progress = ?, updated_at = datetime('now') WHERE id = ?`,
-        [renderResult.error || 'Render failed', failProgress, videoId]);
-    }
-    await saveAndClose(db2);
-  } catch (err) {
-    try {
-      const failProgress = JSON.stringify({ step: 'failed', message: err.message, pct: 0 });
-      const db = await getDb();
-      db.run(`UPDATE videos SET status = 'failed', error = ?, progress = ?, updated_at = datetime('now') WHERE id = ?`,
-        [err.message, failProgress, videoId]);
-      await saveAndClose(db);
-    } catch {}
-  }
-}
-
-export { generateInBackground, generateFromWebsite };
+export { generateInBackground };
 export default router;
