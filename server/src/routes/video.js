@@ -367,25 +367,58 @@ async function generateInBackground(videoId, prompt, options) {
       await saveAndClose(dbA);
     }
 
-    // Generate subtitles (WebVTT) if requested and narration text exists
+    // Generate subtitles as visible text overlays (burned into video frames)
     if (options.useSubtitles && narrationText.trim()) {
       try {
-        const vttDir = path.join(workDir, 'vtt');
-        await fs.mkdir(vttDir, { recursive: true });
-        const vttContent = generateSubtitles(narrationText, duration);
-        const vttPath = path.join(vttDir, 'subtitles.vtt');
-        await fs.writeFile(vttPath, vttContent, 'utf-8');
-        console.log('[generate] subtitles written to', vttPath);
+        const sentences = narrationText
+          .split(/(?<=[.!?])\s+/)
+          .map(s => s.trim())
+          .filter(s => s.length > 0);
 
-        // Inject <track> into composition HTML
+        const durationPerSentence = duration / sentences.length;
+        let overlaysHtml = '';
+        let gsapAnimations = '';
+
+        sentences.forEach((sentence, i) => {
+          const start = i * durationPerSentence;
+          const end = Math.min((i + 1) * durationPerSentence, duration);
+
+          overlaysHtml += `<div id="sub-${i}" class="sub-overlay" style="position:absolute;bottom:60px;left:50%;transform:translateX(-50%);color:#fff;font-family:Arial,sans-serif;font-size:28px;font-weight:600;text-align:center;text-shadow:0 2px 8px rgba(0,0,0,0.9);background:rgba(0,0,0,0.55);padding:10px 28px;border-radius:10px;opacity:0;pointer-events:none;z-index:1000;max-width:80%;white-space:nowrap;">${sentence}</div>\n`;
+
+          gsapAnimations += `mainTl.to("#sub-${i}", { opacity: 1, duration: 0.2 }, ${start});`;
+          gsapAnimations += `mainTl.to("#sub-${i}", { opacity: 0, duration: 0.2 }, ${Math.max(0, end - 0.3)});`;
+        });
+
+        // Inject subtitle overlays + GSAP animations into composition
         const compositionPath = path.join(workDir, 'index.html');
         let composition = await fs.readFile(compositionPath, 'utf-8');
+
+        // Insert overlay divs before </body>
+        composition = composition.replace('</body>', `${overlaysHtml}\n</body>`);
+
+        // Append GSAP timeline calls after the timeline creation
+        // Find window.__timelines["main"] = mainTl; and append after it
         composition = composition.replace(
-          '</body>',
-          '<track kind="subtitles" src="vtt/subtitles.vtt" srclang="ro" label="Română" default>\n</body>'
+          /(window\.__timelines\["main"\]\s*=\s*mainTl;)/,
+          `$1\n${gsapAnimations}`
         );
+
         await fs.writeFile(compositionPath, composition);
-        await updateDebug(videoId, { subtitles_vtt: vttContent.substring(0, 500) });
+        const vttContent = sentences.map((s, i) => {
+          const start = i * durationPerSentence;
+          const end = Math.min((i + 1) * durationPerSentence, duration);
+          const fmt = (secs) => {
+            const totalMs = Math.round(secs * 1000);
+            const h = Math.floor(totalMs / 3600000);
+            const m = Math.floor((totalMs % 3600000) / 60000);
+            const s = Math.floor((totalMs % 60000) / 1000);
+            const ms = totalMs % 1000;
+            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
+          };
+          return `${i + 1}\n${fmt(start)} --> ${fmt(end)}\n${s}`;
+        }).join('\n\n');
+        await updateDebug(videoId, { subtitles_vtt: vttContent.substring(0, 500), subtitle_count: sentences.length });
+        console.log(`[generate] ${sentences.length} subtitle overlays injected`);
       } catch (e) {
         console.error('[generate] subtitles error:', e.message);
       }
