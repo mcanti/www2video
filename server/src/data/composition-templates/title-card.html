@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html data-composition-variables='[{"id":"title","type":"string","label":"Title","default":"Your Video"},{"id":"subtitle","type":"string","label":"Subtitle","default":"Generated with www2video"},{"id":"bgColor","type":"color","label":"Background","default":"#0d0d0d"},{"id":"accentColor","type":"color","label":"Accent","default":"#6c63ff"}]'>
+<head><meta charset="UTF-8"><title>www2video - Template</title></head>
+<body>
+  <div data-composition-id="root" data-width="1920" data-height="1080">
+    <div class="scene-content" id="scene-1">
+      <h1 id="s1-title" class="clip" data-start="0" data-duration="5">Your Video</h1>
+      <p id="s1-subtitle" class="clip" data-start="0" data-duration="5" style="font-size:32px;opacity:0.8">Generated with www2video</p>
+    </div>
+
+    <style>
+      .scene-content {
+        display: flex; flex-direction: column;
+        justify-content: center; align-items: center;
+        width: 100%; height: 100%;
+        padding: 80px; box-sizing: border-box;
+        background: #0d0d0d; color: #fff;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      }
+      h1 { font-size: 72px; font-weight: 700; margin: 0; text-align: center; }
+      p { font-size: 28px; margin: 16px 0 0; text-align: center; }
+    </style>
+
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <script>
+      const { title, subtitle, bgColor, accentColor } = window.__hyperframes.getVariables();
+      document.querySelector('#scene-1').style.background = bgColor;
+      document.querySelector('#s1-title').textContent = title;
+      document.querySelector('#s1-title').style.color = accentColor;
+      document.querySelector('#s1-subtitle').textContent = subtitle;
+
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      tl.from("#s1-title", { y: 40, opacity: 0, duration: 0.8, ease: "power3.out" }, 0.3);
+      tl.from("#s1-subtitle", { y: 20, opacity: 0, duration: 0.6, ease: "power2.out" }, 0.6);
+      window.__timelines["root"] = tl;
+    </script>
+  </div>
+</body>
+</html>

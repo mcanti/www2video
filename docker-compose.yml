@@ -1,0 +1,29 @@
+services:
+  www2video:
+    build: .
+    container_name: www2video
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3017:3017"
+    environment:
+      - PORT=3017
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - NODE_ENV=production
+      - CHROME_HEADLESS_SHELL_PATH=/usr/local/bin/chrome-headless-shell
+      - TTS_SERVICE_ACCOUNT=/app/keys/service-account.json
+      - GCLOUD_PROJECT=gen-lang-client-0575393893
+    volumes:
+      - www2video-data:/app/server/data
+      - www2video-renders:/app/server/renders
+      - /home/canti/.hermes/keys/gen-lang-client-0575393893-f5b1745ff2ff.json:/app/keys/service-account.json:ro
+    networks:
+      - caddy-net
+
+volumes:
+  www2video-data:
+  www2video-renders:
+
+networks:
+  caddy-net:
+    external: true
+    name: caddy-net

@@ -1,0 +1,16 @@
+{
+  "name": "www2video-server",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "cors": "^2.8",
+    "dotenv": "^16",
+    "express": "^4.21",
+    "sql.js": "^1.14.1"
+  }
+}
