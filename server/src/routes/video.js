@@ -341,7 +341,7 @@ async function generateInBackground(videoId, prompt, options) {
         await fs.mkdir(audioDir, { recursive: true });
         const audioResult = await generateTTS(narrationText);
         if (audioResult instanceof ArrayBuffer || audioResult instanceof Buffer) {
-          ttsPath = path.join(audioDir, 'narration.mp3');
+          ttsPath = path.join(audioDir, 'narration.wav');
           await fs.writeFile(ttsPath, Buffer.from(audioResult));
           await updateProgress(videoId, 'audio_done', '🎵 Audio generat', 38);
         } else {
@@ -358,7 +358,7 @@ async function generateInBackground(videoId, prompt, options) {
       const compositionPath = path.join(workDir, 'index.html');
       let composition = await fs.readFile(compositionPath, 'utf-8');
       // Use relative path so Chrome headless can load the audio file
-      const audioRelPath = 'audio/narration.mp3';
+      const audioRelPath = 'audio/narration.wav';
       const audioTag = `<audio id="narration" src="${audioRelPath}" data-start="0" data-duration="${duration}" data-track-index="10" data-volume="0.8"></audio>`;
       composition = composition.replace('</body>', `${audioTag}\n</body>`);
       await fs.writeFile(compositionPath, composition);

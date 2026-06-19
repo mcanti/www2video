@@ -4,50 +4,88 @@ import crypto from 'crypto';
 
 const KEY_PATH = process.env.TTS_SERVICE_ACCOUNT || '/app/keys/service-account.json';
 const PROJECT_ID = process.env.GCLOUD_PROJECT || 'gen-lang-client-0575393893';
-const TTS_API = 'https://texttospeech.googleapis.com/v1/text:synthesize';
+const LOCATION = 'us-central1';
+const TTS_MODEL = 'gemini-3.1-flash-tts-preview';
+const TTS_API = `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/publishers/google/models/${TTS_MODEL}:generateContent`;
 
 /**
- * Generate TTS audio using Google Cloud Text-to-Speech REST API
- * Returns audio buffer (MP3)
+ * Convert PCM Int16 buffer to WAV format
  */
-export async function generateTTS(text, { languageCode = 'ro-RO', voiceName = 'ro-RO-Wavenet-A', speakingRate = 1.0 } = {}) {
+function pcmToWav(pcmBuffer, sampleRate = 24000, numChannels = 1, bitsPerSample = 16) {
+  const dataLength = pcmBuffer.length;
+  const headerLength = 44;
+  const buffer = Buffer.alloc(headerLength + dataLength);
+
+  // RIFF header
+  buffer.write('RIFF', 0);
+  buffer.writeUInt32LE(36 + dataLength, 4);
+  buffer.write('WAVE', 8);
+
+  // fmt chunk
+  buffer.write('fmt ', 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20); // PCM
+  buffer.writeUInt16LE(numChannels, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * numChannels * bitsPerSample / 8, 28);
+  buffer.writeUInt16LE(numChannels * bitsPerSample / 8, 32);
+  buffer.writeUInt16LE(bitsPerSample, 34);
+
+  // data chunk
+  buffer.write('data', 36);
+  buffer.writeUInt32LE(dataLength, 40);
+  pcmBuffer.copy(buffer, 44);
+
+  return buffer;
+}
+
+/**
+ * Generate TTS audio using Vertex AI Gemini TTS Preview
+ * Returns WAV audio buffer (converted from PCM @ 24kHz)
+ */
+export async function generateTTS(text, voice = 'Kore') {
   const token = await getAccessToken();
-  
+
+  const body = {
+    contents: [{
+      role: 'user',
+      parts: [{ text: `Say in Romanian: ${text}` }]
+    }],
+    generationConfig: {
+      responseModalities: ['AUDIO'],
+      speechConfig: {
+        voiceConfig: {
+          prebuiltVoiceConfig: { voiceName: voice }
+        }
+      }
+    }
+  };
+
   const response = await fetch(TTS_API, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      input: { text },
-      voice: {
-        languageCode,
-        name: voiceName,
-        ssmlGender: 'FEMALE',
-      },
-      audioConfig: {
-        audioEncoding: 'MP3',
-        speakingRate,
-        pitch: 0,
-      },
-    }),
-    signal: AbortSignal.timeout(15000),
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(30000),
   });
 
   if (!response.ok) {
     const errText = await response.text().catch(() => '');
-    throw new Error(`TTS API error ${response.status}: ${errText.slice(0, 200)}`);
+    throw new Error(`Vertex AI TTS error ${response.status}: ${errText.slice(0, 300)}`);
   }
 
   const data = await response.json();
-  const audioContent = data.audioContent; // base64-encoded
-  
-  if (!audioContent) {
-    throw new Error('TTS API returned no audio content');
+  const base64Data = data.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+
+  if (!base64Data) {
+    throw new Error('Vertex AI TTS returned no audio data');
   }
 
-  return Buffer.from(audioContent, 'base64');
+  // Gemini TTS returns PCM Int16 @ 24kHz — convert to WAV
+  const pcm = Buffer.from(base64Data, 'base64');
+  return pcmToWav(pcm);
 }
 
 /**
