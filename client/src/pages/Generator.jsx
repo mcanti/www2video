@@ -128,6 +128,7 @@ export default function Generator() {
   const [debugOpen, setDebugOpen] = useState(false);
   const [debugHtml, setDebugHtml] = useState('');
   const [showDetails, setShowDetails] = useState(false);
+  const [copiedUrl, setCopiedUrl] = useState(false);
   const previewRef = useRef(null);
 
   // Feature flag: debug mode via URL param ?debug=true or toggle
@@ -194,10 +195,26 @@ export default function Generator() {
     } catch {}
   };
 
+  // Delete a history entry from localStorage and DB
+  const handleDeleteHistory = async (e, id) => {
+    e.stopPropagation();
+    e.preventDefault();
+    try {
+      await fetch(`${API}/api/video/${id}`, { method: 'DELETE' });
+    } catch (err) {
+      console.warn('[delete] API call failed, removing from localStorage anyway:', err.message);
+    }
+    const list = loadHistory().filter(item => item.id !== id);
+    localStorage.setItem(LS_KEY, JSON.stringify(list));
+    setHistory(loadHistory());
+  };
+
   const handleGenerate = async () => {
     const text = prompt.trim();
     if (!text) return;
 
+    // Reset videoId first so usePollStatus doesn't poll the old video
+    setVideoId(null);
     setMode('generating');
     setError('');
     setDebugHtml('');
@@ -272,12 +289,18 @@ export default function Generator() {
 
   return (
     <div className="app">
-      <header className="app-header">
-        <h1>www2video</h1>
-        <span className="subtitle">AI video generator</span>
+      <header style={{
+        display: 'flex', alignItems: 'center', gap: 14,
+        padding: '16px 0', borderBottom: '1px solid var(--border)',
+      }}>
+        <img src="https://cognitum.ro/assets/logo-inv.png" style={{ height: 28, opacity: 0.8 }} alt="Cognitum" />
+        <div style={{ flex: 1 }}>
+          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, letterSpacing: '-0.3px' }}>www2video</h1>
+          <span style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'block' }}>AI video generator</span>
+        </div>
         {isDebug && (
           <span style={{
-            marginLeft: 12, fontSize: 11, padding: '2px 8px',
+            fontSize: 11, padding: '2px 10px',
             background: 'var(--accent)', color: '#fff', borderRadius: 4,
           }}>DEBUG</span>
         )}
@@ -312,213 +335,243 @@ export default function Generator() {
         {/* Input + Preview row */}
         <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
           {/* Left panel */}
-          <div style={{ flex: '1 1 400px', minWidth: 300 }}>
+          <div style={{ flex: '1 1 400px', minWidth: 320 }}>
             <div style={{
               background: 'var(--surface)', border: '1px solid var(--border)',
-              borderRadius: 12, padding: 24,
+              borderRadius: 12, padding: 0, overflow: 'hidden',
             }}>
-              {/* Video prompt */}
-              <label style={{ display: 'block', marginBottom: 12, fontWeight: 600 }}>
-                Descrie videoclipul
-              </label>
-              <textarea
-                value={prompt}
-                onChange={e => setPrompt(e.target.value)}
-                placeholder="e.g. Un clip de prezentare de 10 secunde pentru o cafea premium..."
-                rows={4}
-                style={{
-                  width: '100%', background: '#111', border: '1px solid var(--border)',
-                  borderRadius: 8, color: 'var(--text)', padding: 12, fontSize: 14,
-                  resize: 'vertical', fontFamily: 'inherit',
-                }}
-              />
-
-              {/* Duration */}
-              <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
-                <label style={{ fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap' }}>
-                  ⏱ Durată (secunde)
-                </label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={duration}
-                  onChange={e => {
-                    const v = e.target.value;
-                    if (v === '' || /^\d+$/.test(v)) {
-                      const n = parseInt(v, 10);
-                      if (n >= 1 && n <= 120) setDuration(n);
-                      else if (v === '') setDuration('');
-                    }
-                  }}
-                  onBlur={e => {
-                    const n = parseInt(e.target.value, 10);
-                    if (isNaN(n) || n < 1) setDuration(10);
-                    else if (n > 120) setDuration(120);
-                    else setDuration(n);
-                  }}
-                  style={{
-                    width: 80, background: '#111', border: '1px solid var(--border)',
-                    borderRadius: 8, color: 'var(--text)', padding: '8px 12px', fontSize: 14,
-                    fontFamily: 'inherit',
-                  }}
-                />
-              </div>
-
-              {/* Resolution */}
-              <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
-                <label style={{ fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap' }}>
-                  📐 Rezoluție
-                </label>
-                <select
-                  value={`${width}x${height}`}
-                  onChange={e => {
-                    const [w, h] = e.target.value.split('x').map(Number);
-                    setWidth(w);
-                    setHeight(h);
-                  }}
-                  style={{
-                    flex: 1, background: '#111', border: '1px solid var(--border)',
-                    borderRadius: 8, color: 'var(--text)', padding: '8px 12px', fontSize: 14,
-                    fontFamily: 'inherit', cursor: 'pointer',
-                  }}
-                >
-                  <option value="1280x720">1280×720 (HD)</option>
-                  <option value="1920x1080">1920×1080 (Full HD)</option>
-                  <option value="2560x1440">2560×1440 (2K)</option>
-                  <option value="720x1280">720×1280 (Reels)</option>
-                  <option value="1080x1920">1080×1920 (Full Reels)</option>
-                  <option value="1080x1080">1080×1080 (Square)</option>
-                </select>
-              </div>
-
-              {/* From website checkbox */}
-              <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
-                <input
-                  type="checkbox"
-                  id="chk-website"
-                  checked={useWebsite}
-                  onChange={e => setUseWebsite(e.target.checked)}
-                  style={{ width: 18, height: 18, accentColor: 'var(--accent)', cursor: 'pointer' }}
-                />
-                <label htmlFor="chk-website" style={{ fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
-                  🌐 From website
-                </label>
-              </div>
-              {useWebsite && (
-                <input
-                  type="url"
-                  value={url}
-                  onChange={e => setUrl(e.target.value)}
-                  placeholder="https://example.com"
-                  style={{
-                    width: '100%', marginTop: 8, background: '#111',
-                    border: '1px solid var(--border)', borderRadius: 8,
-                    color: 'var(--text)', padding: 12, fontSize: 14,
-                    fontFamily: 'inherit',
-                  }}
-                />
-              )}
-
-              {/* Audio toggle */}
-              <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
-                <input
-                  type="checkbox"
-                  id="chk-audio"
-                  checked={useAudio}
-                  onChange={e => setUseAudio(e.target.checked)}
-                  style={{ width: 18, height: 18, accentColor: 'var(--accent)', cursor: 'pointer' }}
-                />
-                <label htmlFor="chk-audio" style={{ fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
-                  🎵 Audio (narare)
-                </label>
-              </div>
-              {useAudio && (
+              {/* Section: Conținut */}
+              <div style={{ padding: '20px 24px 16px' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.8px', color: 'var(--text-secondary)', marginBottom: 10 }}>
+                  📝 Conținut
+                </div>
                 <textarea
-                  value={audioPrompt}
-                  onChange={e => setAudioPrompt(e.target.value)}
-                  placeholder="Scrie textul pe care sa-l spuna naratorul sau lasă gol și va fi generat automat un text potrivit"
-                  rows={3}
+                  value={prompt}
+                  onChange={e => setPrompt(e.target.value)}
+                  placeholder="e.g. Un clip de prezentare de 10 secunde pentru o cafea premium..."
+                  rows={4}
                   style={{
-                    width: '100%', marginTop: 8, background: '#111',
-                    border: '1px solid var(--border)', borderRadius: 8,
-                    color: 'var(--text)', padding: 12, fontSize: 14,
+                    width: '100%', background: '#111', border: '1px solid var(--border)',
+                    borderRadius: 8, color: 'var(--text)', padding: 12, fontSize: 14,
                     resize: 'vertical', fontFamily: 'inherit',
                   }}
                 />
-              )}
-
-              {/* Subtitles toggle */}
-              <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
-                <input
-                  type="checkbox"
-                  id="chk-subtitles"
-                  checked={useSubtitles}
-                  onChange={e => setUseSubtitles(e.target.checked)}
-                  style={{ width: 18, height: 18, accentColor: 'var(--accent)', cursor: 'pointer' }}
-                />
-                <label htmlFor="chk-subtitles" style={{ fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
-                  📝 Subtitles
-                </label>
               </div>
 
-              {/* Voice selector */}
-              {useAudio && (
-                <div style={{ marginTop: 12 }}>
-                  <label style={{ fontWeight: 600, fontSize: 13, display: 'block', marginBottom: 6 }}>
-                    🔊 Voce narator
+              <div style={{ height: 1, background: 'var(--border)', margin: '0 24px', opacity: 0.4 }} />
+
+              {/* Section: Setări */}
+              <div style={{ padding: '16px 24px' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.8px', color: 'var(--text-secondary)', marginBottom: 12 }}>
+                  ⚙️ Setări
+                </div>
+                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                  <div style={{ flex: '0 0 auto' }}>
+                    <label style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                      Durată (secunde)
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={duration}
+                      onChange={e => {
+                        const v = e.target.value;
+                        if (v === '' || /^\d+$/.test(v)) {
+                          const n = parseInt(v, 10);
+                          if (n >= 1 && n <= 120) setDuration(n);
+                          else if (v === '') setDuration('');
+                        }
+                      }}
+                      onBlur={e => {
+                        const n = parseInt(e.target.value, 10);
+                        if (isNaN(n) || n < 1) setDuration(10);
+                        else if (n > 120) setDuration(120);
+                        else setDuration(n);
+                      }}
+                      style={{
+                        width: 90, background: '#111', border: '1px solid var(--border)',
+                        borderRadius: 8, color: 'var(--text)', padding: '8px 12px', fontSize: 14,
+                        fontFamily: 'inherit',
+                      }}
+                    />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 140 }}>
+                    <label style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                      Rezoluție
+                    </label>
+                    <select
+                      value={`${width}x${height}`}
+                      onChange={e => {
+                        const [w, h] = e.target.value.split('x').map(Number);
+                        setWidth(w);
+                        setHeight(h);
+                      }}
+                      style={{
+                        width: '100%', background: '#111', border: '1px solid var(--border)',
+                        borderRadius: 8, color: 'var(--text)', padding: '8px 12px', fontSize: 14,
+                        fontFamily: 'inherit', cursor: 'pointer',
+                      }}
+                    >
+                      <option value="1280x720">1280×720 (HD)</option>
+                      <option value="1920x1080">1920×1080 (Full HD)</option>
+                      <option value="2560x1440">2560×1440 (2K)</option>
+                      <option value="720x1280">720×1280 (Reels)</option>
+                      <option value="1080x1920">1080×1920 (Full Reels)</option>
+                      <option value="1080x1080">1080×1080 (Square)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ height: 1, background: 'var(--border)', margin: '0 24px', opacity: 0.4 }} />
+
+              {/* Section: Surse */}
+              <div style={{ padding: '16px 24px' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.8px', color: 'var(--text-secondary)', marginBottom: 10 }}>
+                  🌐 Surse
+                </div>
+                {/* From website checkbox */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: useWebsite ? 8 : 0 }}>
+                  <input
+                    type="checkbox"
+                    id="chk-website"
+                    checked={useWebsite}
+                    onChange={e => setUseWebsite(e.target.checked)}
+                    style={{ width: 18, height: 18, accentColor: 'var(--accent)', cursor: 'pointer' }}
+                  />
+                  <label htmlFor="chk-website" style={{ fontSize: 13, cursor: 'pointer' }}>
+                    🌐 From website
                   </label>
-                  <select
-                    value={voiceName}
-                    onChange={e => setVoiceName(e.target.value)}
+                </div>
+                {useWebsite && (
+                  <input
+                    type="url"
+                    value={url}
+                    onChange={e => setUrl(e.target.value)}
+                    placeholder="https://example.com"
                     style={{
-                      width: '100%', background: '#111', border: '1px solid var(--border)',
-                      borderRadius: 8, color: 'var(--text)', padding: '8px 12px', fontSize: 13,
-                      fontFamily: 'inherit', cursor: 'pointer',
+                      width: '100%', marginTop: 0, background: '#111',
+                      border: '1px solid var(--border)', borderRadius: 8,
+                      color: 'var(--text)', padding: 12, fontSize: 14,
+                      fontFamily: 'inherit',
                     }}
-                  >
-                    {GEMINI_VOICES.map(v => (
-                      <option key={v.name} value={v.name}>{v.label}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
+                  />
+                )}
 
-              {/* Generate button */}
-              <button
-                onClick={handleGenerate}
-                disabled={isGenerating || !prompt.trim()}
-                style={{
-                  width: '100%', padding: '14px 24px', marginTop: 16,
-                  background: isGenerating ? 'var(--accent)' : 'linear-gradient(135deg, var(--accent), #a78bfa)',
-                  color: '#fff', border: 'none', borderRadius: 8,
-                  fontSize: 15, fontWeight: 700, cursor: 'pointer',
-                  opacity: isGenerating || !prompt.trim() ? 0.5 : 1,
-                  transition: 'opacity 0.2s',
-                }}
-              >
-                {isGenerating ? '⏳ Se generează...' : '🚀 Generare Video'}
-              </button>
-
-              {error && (
-                <div style={{
-                  marginTop: 12, padding: 10, background: '#2d1111',
-                  border: '1px solid var(--error)', borderRadius: 8, color: 'var(--error)',
-                  fontSize: 13,
-                }}>
-                  ❌ {error}
+                {/* Audio toggle */}
+                <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <input
+                    type="checkbox"
+                    id="chk-audio"
+                    checked={useAudio}
+                    onChange={e => setUseAudio(e.target.checked)}
+                    style={{ width: 18, height: 18, accentColor: 'var(--accent)', cursor: 'pointer' }}
+                  />
+                  <label htmlFor="chk-audio" style={{ fontSize: 13, cursor: 'pointer' }}>
+                    🎵 Audio (narare)
+                  </label>
                 </div>
-              )}
+                {useAudio && (
+                  <textarea
+                    value={audioPrompt}
+                    onChange={e => setAudioPrompt(e.target.value)}
+                    placeholder="Scrie textul pe care sa-l spuna naratorul sau lasă gol și va fi generat automat un text potrivit"
+                    rows={3}
+                    style={{
+                      width: '100%', marginTop: 8, background: '#111',
+                      border: '1px solid var(--border)', borderRadius: 8,
+                      color: 'var(--text)', padding: 12, fontSize: 14,
+                      resize: 'vertical', fontFamily: 'inherit',
+                    }}
+                  />
+                )}
+              </div>
 
-              {isGenerating && status && (
-                <div style={{ marginTop: 12, padding: 10, background: '#111a2d', borderRadius: 8, fontSize: 13 }}>
-                  ⏳ Status: <strong>{status.status}</strong>
+              <div style={{ height: 1, background: 'var(--border)', margin: '0 24px', opacity: 0.4 }} />
+
+              {/* Section: Subtitrări & Voce */}
+              <div style={{ padding: '16px 24px 20px' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.8px', color: 'var(--text-secondary)', marginBottom: 10 }}>
+                  🔊 Subtitrări &amp; Voce
                 </div>
-              )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                  <input
+                    type="checkbox"
+                    id="chk-subtitles"
+                    checked={useSubtitles}
+                    onChange={e => setUseSubtitles(e.target.checked)}
+                    style={{ width: 18, height: 18, accentColor: 'var(--accent)', cursor: 'pointer' }}
+                  />
+                  <label htmlFor="chk-subtitles" style={{ fontSize: 13, cursor: 'pointer' }}>
+                    📝 Subtitles
+                  </label>
+                </div>
+                {useAudio && (
+                  <div>
+                    <label style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
+                      Voce narator
+                    </label>
+                    <select
+                      value={voiceName}
+                      onChange={e => setVoiceName(e.target.value)}
+                      style={{
+                        width: '100%', background: '#111', border: '1px solid var(--border)',
+                        borderRadius: 8, color: 'var(--text)', padding: '8px 12px', fontSize: 13,
+                        fontFamily: 'inherit', cursor: 'pointer',
+                      }}
+                    >
+                      {GEMINI_VOICES.map(v => (
+                        <option key={v.name} value={v.name}>{v.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              <div style={{ height: 1, background: 'var(--border)', margin: '0 24px', opacity: 0.4 }} />
+
+              {/* Generate button section */}
+              <div style={{ padding: '16px 24px 20px' }}>
+                <button
+                  onClick={handleGenerate}
+                  disabled={isGenerating || !prompt.trim()}
+                  style={{
+                    width: '100%', padding: '14px 24px',
+                    background: isGenerating || !prompt.trim()
+                      ? 'var(--accent)'
+                      : 'linear-gradient(135deg, #6c63ff 0%, #a78bfa 50%, #7c3aed 100%)',
+                    color: '#fff', border: 'none', borderRadius: 10,
+                    fontSize: 15, fontWeight: 700, cursor: 'pointer',
+                    opacity: isGenerating || !prompt.trim() ? 0.5 : 1,
+                    transition: 'opacity 0.2s, transform 0.1s',
+                    boxShadow: isGenerating || !prompt.trim() ? 'none' : '0 2px 12px rgba(108,99,255,0.3)',
+                    letterSpacing: '0.3px',
+                  }}
+                >
+                  {isGenerating ? '⏳ Se generează...' : '🚀 Generare Video'}
+                </button>
+
+                {error && (
+                  <div style={{
+                    marginTop: 12, padding: 10, background: '#2d1111',
+                    border: '1px solid var(--error)', borderRadius: 8, color: 'var(--error)',
+                    fontSize: 13,
+                  }}>
+                    ❌ {error}
+                  </div>
+                )}
+
+                {isGenerating && status && (
+                  <div style={{ marginTop: 12, padding: 10, background: '#111a2d', borderRadius: 8, fontSize: 13 }}>
+                    ⏳ Status: <strong>{status.status}</strong>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
           {/* Right panel — preview */}
-          <div style={{ flex: '2 1 500px', minWidth: 300 }}>
+          <div style={{ flex: '1.3 1 440px', minWidth: 320 }}>
             <div style={{
               background: 'var(--surface)', border: '1px solid var(--border)',
               borderRadius: 12, minHeight: 400,
@@ -672,6 +725,7 @@ export default function Generator() {
               {mode === 'preview' && ((status || historyStatus)?.status === 'ready') && (
                 <div style={{
                   display: 'flex', gap: 8, padding: 12, borderTop: '1px solid var(--border)',
+                  flexWrap: 'wrap',
                 }}>
                   <button
                     onClick={() => {
@@ -681,20 +735,40 @@ export default function Generator() {
                       a.click();
                     }}
                     style={{
-                      flex: 1, padding: '10px', background: '#1a3a1a',
-                      border: '1px solid var(--success)', borderRadius: 6,
-                      color: 'var(--success)', cursor: 'pointer', fontWeight: 600, fontSize: 13,
+                      flex: '1 1 auto', padding: '10px 14px', background: 'linear-gradient(135deg, #1a3a1a, #2a5a2a)',
+                      border: '1px solid var(--success)', borderRadius: 8,
+                      color: 'var(--success)', cursor: 'pointer', fontWeight: 600, fontSize: 12,
+                      transition: 'all 0.15s',
                     }}
                   >
                     ⬇ Descarcă MP4
                   </button>
                   <button
+                    onClick={() => {
+                      const url = `${API}/api/video/${videoId}/download`;
+                      navigator.clipboard.writeText(url).then(() => {
+                        setCopiedUrl(true);
+                        setTimeout(() => setCopiedUrl(false), 2000);
+                      });
+                    }}
+                    style={{
+                      flex: '1 1 auto', padding: '10px 14px', background: 'linear-gradient(135deg, #1a2a3a, #1a3a3a)',
+                      border: '1px solid var(--accent)', borderRadius: 8,
+                      color: 'var(--accent)', cursor: 'pointer', fontWeight: 600, fontSize: 12,
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    {copiedUrl ? '✅ Copiat!' : '📋 Copy URL'}
+                  </button>
+                  <button
                     onClick={handleRegenerate}
                     disabled={!prompt.trim()}
                     style={{
-                      flex: 1, padding: '10px', background: '#2a1a1a',
-                      border: '1px solid var(--accent)', borderRadius: 6,
-                      color: 'var(--accent)', cursor: 'pointer', fontWeight: 600, fontSize: 13,
+                      flex: '1 1 auto', padding: '10px 14px', background: 'linear-gradient(135deg, #2a1a1a, #3a1a1a)',
+                      border: '1px solid #ff6b6b', borderRadius: 8,
+                      color: '#ff6b6b', cursor: 'pointer', fontWeight: 600, fontSize: 12,
+                      transition: 'all 0.15s',
+                      opacity: !prompt.trim() ? 0.5 : 1,
                     }}
                   >
                     🔄 Regenerare
@@ -702,10 +776,13 @@ export default function Generator() {
                   <button
                     onClick={() => setShowDetails(!showDetails)}
                     style={{
-                      flex: 1, padding: '10px', background: '#1a1a2e',
-                      border: `1px solid ${showDetails ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 6,
+                      flex: '1 1 auto', padding: '10px 14px',
+                      background: showDetails ? 'rgba(108,99,255,0.12)' : '#111',
+                      border: `1px solid ${showDetails ? 'var(--accent)' : 'var(--border)'}`,
+                      borderRadius: 8,
                       color: showDetails ? 'var(--accent)' : 'var(--text-secondary)',
-                      cursor: 'pointer', fontWeight: 600, fontSize: 13,
+                      cursor: 'pointer', fontWeight: 600, fontSize: 12,
+                      transition: 'all 0.15s',
                     }}
                   >
                     {showDetails ? '🔍 Ascunde Detalii' : '🔍 Detalii'}
@@ -713,85 +790,103 @@ export default function Generator() {
                 </div>
               )}
 
-              {/* Details panel — always visible via "🔍 Detalii" toggle, reads from debugInfo in status/historyStatus */}
+              {/* Details panel — dropdown-style toggle */}
               {showDetails && mode === 'preview' && ((status || historyStatus)?.status === 'ready') && (
-                <div style={{ padding: 12, borderTop: '1px solid var(--border)', fontSize: 12 }}>
-                  {/* Video ID */}
-                  <div style={{ marginBottom: 8 }}>
-                    <strong>Video ID:</strong> <code style={{ color: 'var(--accent)' }}>{videoId}</code>
-                  </div>
-
-                  {/* Composition HTML (from debugInfo, first 500 chars) */}
-                  {(status || historyStatus)?.debugInfo?.composition_html && (
-                    <div style={{ marginBottom: 8 }}>
-                      <strong>🧬 HTML Composition:</strong>
-                      <pre style={{
-                        background: '#111', padding: 8, borderRadius: 6,
-                        marginTop: 4, fontSize: 10, overflowX: 'auto',
-                        whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                        maxHeight: 150, overflowY: 'auto', lineHeight: 1.3,
-                      }}>{(status || historyStatus).debugInfo.composition_html.substring(0, 500)}</pre>
-                      {(status || historyStatus).debugInfo.composition_html.length > 500 && (
-                        <span style={{ color: 'var(--text-secondary)', marginTop: 2, display: 'block' }}>
-                          ... ({(status || historyStatus).debugInfo.composition_html.length} chars total)
-                        </span>
-                      )}
+                <div style={{
+                  borderTop: '1px solid var(--border)', fontSize: 12,
+                  background: '#0a0a18',
+                }}>
+                  <div style={{ padding: '10px 14px' }}>
+                    {/* Video ID */}
+                    <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ color: 'var(--text-secondary)', fontSize: 11 }}>Video ID:</span>
+                      <code style={{ color: 'var(--accent)', fontSize: 11, background: '#111', padding: '2px 8px', borderRadius: 4 }}>{videoId}</code>
                     </div>
-                  )}
 
-                  {/* Audio narration (if exists) */}
-                  {(status || historyStatus)?.debugInfo?.auto_narration && (
-                    <div style={{ marginBottom: 8 }}>
-                      <strong>🎙️ Audio Narration:</strong>
-                      <pre style={{
-                        background: '#111', padding: 8, borderRadius: 6,
-                        marginTop: 4, fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                        maxHeight: 100, overflowY: 'auto',
-                      }}>{(status || historyStatus).debugInfo.auto_narration}</pre>
-                    </div>
-                  )}
-
-                  {/* Lint result */}
-                  {(status || historyStatus)?.debugInfo?.lint && (
-                    <div style={{ marginBottom: 8 }}>
-                      <strong>🔍 Lint: </strong>
-                      <span style={{ color: (status || historyStatus).debugInfo.lint.ok ? 'var(--success)' : 'var(--error)' }}>
-                        {(status || historyStatus).debugInfo.lint.ok ? '✅ Passed' : '⚠️ Warnings'}
-                      </span>
-                      {(status || historyStatus).debugInfo.lint.errors && (
+                    {/* Composition HTML (from debugInfo, first 500 chars) */}
+                    {(status || historyStatus)?.debugInfo?.composition_html && (
+                      <details style={{ marginBottom: 6 }} open>
+                        <summary style={{ cursor: 'pointer', color: 'var(--text)', fontWeight: 600, fontSize: 12, padding: '6px 0' }}>
+                          🧬 HTML Composition
+                        </summary>
                         <pre style={{
                           background: '#111', padding: 8, borderRadius: 6,
-                          marginTop: 4, fontSize: 10, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                          marginTop: 4, fontSize: 10, overflowX: 'auto',
+                          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                          maxHeight: 150, overflowY: 'auto', lineHeight: 1.3,
+                        }}>{(status || historyStatus).debugInfo.composition_html.substring(0, 500)}</pre>
+                        {(status || historyStatus).debugInfo.composition_html.length > 500 && (
+                          <span style={{ color: 'var(--text-secondary)', marginTop: 2, display: 'block', fontSize: 10 }}>
+                            ... ({(status || historyStatus).debugInfo.composition_html.length} chars total)
+                          </span>
+                        )}
+                      </details>
+                    )}
+
+                    {/* Audio narration (if exists) */}
+                    {(status || historyStatus)?.debugInfo?.auto_narration && (
+                      <details style={{ marginBottom: 6 }} open>
+                        <summary style={{ cursor: 'pointer', color: 'var(--text)', fontWeight: 600, fontSize: 12, padding: '6px 0' }}>
+                          🎙️ Audio Narration
+                        </summary>
+                        <pre style={{
+                          background: '#111', padding: 8, borderRadius: 6,
+                          marginTop: 4, fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
                           maxHeight: 100, overflowY: 'auto',
-                        }}>{(status || historyStatus).debugInfo.lint.errors}</pre>
-                      )}
-                    </div>
-                  )}
+                        }}>{(status || historyStatus).debugInfo.auto_narration}</pre>
+                      </details>
+                    )}
 
-                  {/* Render status + path */}
-                  {(status || historyStatus)?.debugInfo?.render && (
-                    <div style={{ marginBottom: 8 }}>
-                      <strong>🎬 Render: </strong>
-                      <span style={{ color: (status || historyStatus).debugInfo.render.ok ? 'var(--success)' : 'var(--error)' }}>
-                        {(status || historyStatus).debugInfo.render.ok ? '✅ OK' : '❌ Failed'}
-                      </span>
-                      {(status || historyStatus).debugInfo.render.path && (
-                        <div style={{ marginTop: 2, color: '#aaa', fontSize: 10 }}>
-                          📁 {String((status || historyStatus).debugInfo.render.path).substring(0, 120)}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                    {/* Lint result */}
+                    {(status || historyStatus)?.debugInfo?.lint && (
+                      <details style={{ marginBottom: 6 }} open>
+                        <summary style={{ cursor: 'pointer', color: 'var(--text)', fontWeight: 600, fontSize: 12, padding: '6px 0' }}>
+                          🔍 Lint:{' '}
+                          <span style={{ color: (status || historyStatus).debugInfo.lint.ok ? 'var(--success)' : 'var(--error)' }}>
+                            {(status || historyStatus).debugInfo.lint.ok ? '✅ Passed' : '⚠️ Warnings'}
+                          </span>
+                        </summary>
+                        {(status || historyStatus).debugInfo.lint.errors && (
+                          <pre style={{
+                            background: '#111', padding: 8, borderRadius: 6,
+                            marginTop: 4, fontSize: 10, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                            maxHeight: 100, overflowY: 'auto',
+                          }}>{(status || historyStatus).debugInfo.lint.errors}</pre>
+                        )}
+                      </details>
+                    )}
 
-                  {/* Prompt (from status or historyStatus) */}
-                  <div style={{ marginBottom: 8 }}>
-                    <strong>Prompt:</strong>
-                    <pre style={{
-                      background: '#111', padding: 8, borderRadius: 6,
-                      marginTop: 4, fontSize: 11, overflowX: 'auto',
-                      whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                      maxHeight: 100, overflowY: 'auto',
-                    }}>{(status || historyStatus)?.prompt || 'N/A'}</pre>
+                    {/* Render status + path */}
+                    {(status || historyStatus)?.debugInfo?.render && (
+                      <details style={{ marginBottom: 6 }} open>
+                        <summary style={{ cursor: 'pointer', color: 'var(--text)', fontWeight: 600, fontSize: 12, padding: '6px 0' }}>
+                          🎬 Render:{' '}
+                          <span style={{ color: (status || historyStatus).debugInfo.render.ok ? 'var(--success)' : 'var(--error)' }}>
+                            {(status || historyStatus).debugInfo.render.ok ? '✅ OK' : '❌ Failed'}
+                          </span>
+                        </summary>
+                        {(status || historyStatus).debugInfo.render.path && (
+                          <div style={{ marginTop: 2, color: '#aaa', fontSize: 10, padding: '0 0 4px' }}>
+                            📁 {String((status || historyStatus).debugInfo.render.path).substring(0, 120)}
+                          </div>
+                        )}
+                      </details>
+                    )}
+
+                    {/* Prompt (from status or historyStatus) */}
+                    {(status || historyStatus)?.prompt && (
+                      <details style={{ marginBottom: 6 }}>
+                        <summary style={{ cursor: 'pointer', color: 'var(--text)', fontWeight: 600, fontSize: 12, padding: '6px 0' }}>
+                          📝 Prompt
+                        </summary>
+                        <pre style={{
+                          background: '#111', padding: 8, borderRadius: 6,
+                          marginTop: 4, fontSize: 11, overflowX: 'auto',
+                          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                          maxHeight: 100, overflowY: 'auto',
+                        }}>{(status || historyStatus)?.prompt || 'N/A'}</pre>
+                      </details>
+                    )}
                   </div>
                 </div>
               )}
@@ -803,42 +898,59 @@ export default function Generator() {
         {history.length > 0 && (
           <div style={{
             background: 'var(--surface)', border: '1px solid var(--border)',
-            borderRadius: 12, padding: 24,
+            borderRadius: 12, padding: '16px 20px',
           }}>
-            <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>📋 Istoric</h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.8px', color: 'var(--text-secondary)', marginBottom: 12 }}>
+              📋 Istoric ({history.length})
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {history.slice(0, 10).map(v => (
                 <div key={v.id} style={{
-                  display: 'flex', alignItems: 'center', gap: 12,
-                  padding: '10px 14px', background: '#111', borderRadius: 8,
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '8px 12px', background: '#111', borderRadius: 8,
                   cursor: v.status === 'ready' || v.status === 'failed' ? 'pointer' : 'default',
-                  fontSize: 13,
+                  fontSize: 12, transition: 'background 0.12s',
                 }}
                   onClick={() => loadHistoryVideo(v)}
+                  onMouseOver={e => {
+                    if (v.status === 'ready' || v.status === 'failed') e.currentTarget.style.background = '#1a1a2e';
+                  }}
+                  onMouseOut={e => e.currentTarget.style.background = '#111'}
                 >
                   <span style={{
-                    width: 8, height: 8, borderRadius: '50%',
+                    width: 7, height: 7, borderRadius: '50%',
                     background: v.status === 'ready' ? 'var(--success)' : v.status === 'failed' ? 'var(--error)' : '#ffa500',
                     flexShrink: 0,
                   }} />
-                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}>
                     {v.prompt}
                   </span>
-                  <span style={{ color: 'var(--text-secondary)', fontSize: 11 }}>
+                  <span style={{ color: 'var(--text-secondary)', fontSize: 10, whiteSpace: 'nowrap' }}>
                     {v.duration || '?'}s
                   </span>
-                  <span style={{ color: 'var(--text-secondary)', fontSize: 11 }}>
+                  <span style={{ color: 'var(--text-secondary)', fontSize: 10, whiteSpace: 'nowrap' }}>
                     {new Date(v.created_at).toLocaleString()}
                   </span>
                   {v.status === 'ready' && (
-                    <span style={{ fontSize: 11, color: 'var(--success)' }}>gata</span>
+                    <span style={{ fontSize: 10, color: 'var(--success)' }}>gata</span>
                   )}
                   {v.status === 'failed' && (
-                    <span style={{ fontSize: 11, color: 'var(--error)' }}>eșuat</span>
+                    <span style={{ fontSize: 10, color: 'var(--error)' }}>eșuat</span>
                   )}
-                  {v.useAudio && <span style={{ fontSize: 11, color: 'var(--accent)' }}>🎵</span>}
-                  {v.useSubtitles && <span style={{ fontSize: 11 }}>📝</span>}
-                  {v.useWebsite && <span style={{ fontSize: 11 }}>🌐</span>}
+                  {v.useAudio && <span style={{ fontSize: 10, color: 'var(--accent)' }}>🎵</span>}
+                  {v.useSubtitles && <span style={{ fontSize: 10 }}>📝</span>}
+                  {v.useWebsite && <span style={{ fontSize: 10 }}>🌐</span>}
+                  <button
+                    onClick={(e) => handleDeleteHistory(e, v.id)}
+                    style={{
+                      background: 'none', border: 'none', color: 'var(--text-secondary)',
+                      cursor: 'pointer', fontSize: 14, padding: '2px 6px', borderRadius: 4,
+                      lineHeight: 1, flexShrink: 0,
+                    }}
+                    onMouseOver={e => e.target.style.color = 'var(--error)'}
+                    onMouseOut={e => e.target.style.color = 'var(--text-secondary)'}
+                    title="Șterge din istoric"
+                  >✕</button>
                 </div>
               ))}
             </div>
@@ -849,7 +961,14 @@ export default function Generator() {
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
         button:hover { filter: brightness(1.15); }
-        textarea:focus, input:focus { outline: none; border-color: var(--accent); }
+        textarea:focus, input:focus, select:focus { outline: none; border-color: var(--accent) !important; }
+        summary { cursor: pointer; }
+        summary::-webkit-details-marker { color: var(--accent); }
+        details[open] > summary { margin-bottom: 4px; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #444; }
       `}</style>
     </div>
   );

@@ -4,7 +4,7 @@ import { composeFromPrompt, extractDesignTokens, generateTTS, generateSubtitles 
 import { fetchRenderedDOM, extractBrandTokens } from '../services/website-scraper.js';
 import path from 'path';
 import fs from 'fs/promises';
-import { existsSync } from 'fs';
+import { existsSync, openSync, readSync, closeSync } from 'fs';
 import initSqlJs from 'sql.js';
 
 const router = Router();
@@ -101,6 +101,24 @@ async function updateDebug(videoId, info) {
   } catch (e) {
     console.error('[updateDebug] error:', e.message);
   }
+}
+
+/**
+ * Read WAV file header to get the actual audio duration in seconds
+ * Works with standard 44-byte WAV header (PCM, any sample rate/channels/bps)
+ */
+function getWavDuration(wavPath) {
+  const header = Buffer.alloc(44);
+  const fd = openSync(wavPath, 'r');
+  readSync(fd, header, 0, 44, 0);
+  closeSync(fd);
+  const sampleRate = header.readUInt32LE(24);
+  const bitsPerSample = header.readUInt16LE(34);
+  const numChannels = header.readUInt16LE(22);
+  const dataSize = header.readUInt32LE(40);
+  const bytesPerSample = bitsPerSample / 8;
+  const numSamples = dataSize / (bytesPerSample * numChannels);
+  return numSamples / sampleRate;
 }
 
 // POST /api/video/generate
@@ -217,6 +235,54 @@ router.get('/:id/download', async (req, res) => {
   }
 });
 
+// DELETE /api/video/:id
+router.delete('/:id', async (req, res) => {
+  try {
+    const db = await getDb();
+    const video = queryOne(db, 'SELECT * FROM videos WHERE id = ?', [req.params.id]);
+
+    if (!video) {
+      db.close();
+      return res.status(404).json({ error: 'Video not found' });
+    }
+
+    // Delete composition files from disk
+    if (video.composition_path) {
+      try {
+        await fs.rm(video.composition_path, { recursive: true, force: true });
+      } catch (e) {
+        console.warn(`[delete] Could not remove composition_path: ${video.composition_path}`, e.message);
+      }
+    }
+
+    // Delete render file from disk
+    if (video.render_path) {
+      try {
+        await fs.rm(video.render_path, { force: true });
+      } catch (e) {
+        console.warn(`[delete] Could not remove render_path: ${video.render_path}`, e.message);
+      }
+    }
+
+    // Delete TTS file from disk
+    if (video.tts_path) {
+      try {
+        await fs.rm(video.tts_path, { force: true });
+      } catch (e) {
+        console.warn(`[delete] Could not remove tts_path: ${video.tts_path}`, e.message);
+      }
+    }
+
+    // Delete from DB
+    db.run('DELETE FROM videos WHERE id = ?', [req.params.id]);
+    await saveAndClose(db);
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[delete] error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // POST /api/video/tts
 router.post('/tts', async (req, res) => {
@@ -254,6 +320,7 @@ router.post('/subtitles', async (req, res) => {
 async function generateInBackground(videoId, prompt, options) {
   try {
     const duration = options.duration || 10;
+    let audioDuration = duration; // will be updated with real WAV duration if TTS is generated
     const audioPrompt = options.audioPrompt || '';
 
     // --- Website scraping (optional, when sourceUrl is provided) ---
@@ -363,6 +430,14 @@ async function generateInBackground(videoId, prompt, options) {
         if (audioResult instanceof ArrayBuffer || audioResult instanceof Buffer) {
           ttsPath = path.join(audioDir, 'narration.wav');
           await fs.writeFile(ttsPath, Buffer.from(audioResult));
+          // Measure actual audio duration from WAV header
+          try {
+            audioDuration = getWavDuration(ttsPath);
+            console.log(`[generate] Audio real duration: ${audioDuration.toFixed(2)}s (video requested: ${duration}s)`);
+            await updateDebug(videoId, { audio_duration: audioDuration, duration_requested: duration });
+          } catch (e) {
+            console.warn('[generate] Could not measure WAV duration:', e.message);
+          }
           await updateProgress(videoId, 'audio_done', '🎵 Audio generat', 38);
         } else {
           await updateProgress(videoId, 'audio_skip', '⚠️ Audio text-only (fallback)', 38);
@@ -379,12 +454,40 @@ async function generateInBackground(videoId, prompt, options) {
       let composition = await fs.readFile(compositionPath, 'utf-8');
       // Use relative path so Chrome headless can load the audio file
       const audioRelPath = 'audio/narration.wav';
-      const audioTag = `<audio id="narration" src="${audioRelPath}" data-start="0" data-duration="${duration}" data-track-index="10" data-volume="0.8"></audio>`;
+      const audioTag = `<audio id="narration" src="${audioRelPath}" data-start="0" data-duration="${audioDuration}" data-track-index="10" data-volume="0.8"></audio>`;
       composition = composition.replace('</body>', `${audioTag}\n</body>`);
       await fs.writeFile(compositionPath, composition);
       const dbA = await getDb();
       dbA.run('UPDATE videos SET tts_path = ? WHERE id = ?', [ttsPath, videoId]);
       await saveAndClose(dbA);
+
+      // If audio is longer than the requested video duration, extend composition to match
+      if (audioDuration > duration) {
+        try {
+          let compHtml = await fs.readFile(compositionPath, 'utf-8');
+          const newDuration = Math.ceil(audioDuration);
+          // Extend root data-duration
+          compHtml = compHtml.replace(
+            /(data-duration=)"(\d+)"/,
+            (match, attr) => `${attr}"${newDuration}"`
+          );
+          // Extend the LAST scene clip's data-duration to absorb the extra time
+          const lastSceneIdx = compHtml.lastIndexOf('class="clip"');
+          if (lastSceneIdx !== -1) {
+            const beforeClip = compHtml.substring(0, lastSceneIdx);
+            const afterClip = compHtml.substring(lastSceneIdx);
+            compHtml = beforeClip + afterClip.replace(
+              /(data-duration=)"(\d+)"/,
+              (match, attr) => `${attr}"${newDuration}"`
+            );
+          }
+          await fs.writeFile(compositionPath, compHtml);
+          console.log(`[generate] Extended composition duration to ${newDuration}s (audio outpaces video by ${(audioDuration - duration).toFixed(1)}s)`);
+          await updateDebug(videoId, { composition_extended_to: newDuration });
+        } catch (e) {
+          console.warn('[generate] Could not extend composition duration:', e.message);
+        }
+      }
     }
 
     // Generate subtitles as visible text overlays (burned into video frames)
@@ -404,9 +507,9 @@ async function generateInBackground(videoId, prompt, options) {
         sentences.forEach((sentence, i) => {
           // Proportional timing: longer sentences get more screen time
           const ratio = totalChars > 0 ? sentence.length / totalChars : 1 / sentences.length;
-          const sentenceDuration = Math.max(duration * ratio, 0.5);
+          const sentenceDuration = Math.max(audioDuration * ratio, 0.5);
           const start = prevEnd;
-          const end = Math.min(start + sentenceDuration, duration);
+          const end = Math.min(start + sentenceDuration, audioDuration);
           prevEnd = end;
           timedSentences.push({ start, end, text: sentence });
 
