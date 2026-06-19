@@ -7,7 +7,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
  * Retries on transient failures (503, 429)
  */
 export async function composeFromPrompt(prompt, options = {}) {
-  const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash' });
+  const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
 
   let duration = parseInt(options.duration) || 10;
   duration = Math.min(Math.max(duration, 1), 120);
@@ -257,7 +257,7 @@ export async function generateTTS(text) {
  * Generate subtitles in WebVTT format
  */
 export async function generateSubtitles(text) {
-  const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash' });
+  const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
   const result = await model.generateContent([
     { text: `Generate WebVTT format subtitles for this narration text. Estimate timing at ~150 words per minute. Return ONLY the WebVTT content:\n\n${text}` }
   ]);

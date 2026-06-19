@@ -286,7 +286,7 @@ async function generateInBackground(videoId, prompt, options) {
       await updateProgress(videoId, 'generating_audio', '🎵 Se creează textul audio...', 33);
       try {
         const genAI = new (await import('@google/generative-ai')).GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash' });
+        const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
         const result = await model.generateContent([
           { text: 'Generate a short, professional voiceover narration script (in Romanian) for this video. Keep it under 30 words, spoken clearly. Return ONLY the spoken text, no formatting:' },
           { text: `Video content: ${prompt}` },
@@ -434,7 +434,7 @@ async function generateFromWebsite(videoId, url, userPrompt, options = {}) {
       await updateProgress(videoId, 'generating_audio', '🎵 Se creează textul audio...', 33);
       try {
         const genAI = new (await import('@google/generative-ai')).GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash' });
+        const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
         const result = await model.generateContent([
           { text: 'Generate a short, professional voiceover narration script (in Romanian) for this video. Keep it under 30 words, spoken clearly. Return ONLY the spoken text, no formatting:' },
           { text: `Video content: ${enrichedPrompt}` },
