@@ -385,8 +385,8 @@ async function generateInBackground(videoId, prompt, options) {
 
           overlaysHtml += `<div id="sub-${i}" class="sub-overlay" style="position:absolute;bottom:60px;left:50%;transform:translateX(-50%);color:#fff;font-family:Arial,sans-serif;font-size:28px;font-weight:600;text-align:center;text-shadow:0 2px 8px rgba(0,0,0,0.9);background:rgba(0,0,0,0.55);padding:10px 28px;border-radius:10px;opacity:0;pointer-events:none;z-index:1000;max-width:80%;white-space:nowrap;">${sentence}</div>\n`;
 
-          gsapAnimations += `mainTl.to("#sub-${i}", { opacity: 1, duration: 0.2 }, ${start});`;
-          gsapAnimations += `mainTl.to("#sub-${i}", { opacity: 0, duration: 0.2 }, ${Math.max(0, end - 0.3)});`;
+          gsapAnimations += `window.__timelines["main"].to("#sub-${i}", { opacity: 1, duration: 0.2 }, ${start});`;
+          gsapAnimations += `window.__timelines["main"].to("#sub-${i}", { opacity: 0, duration: 0.2 }, ${Math.max(0, end - 0.3)});`;
         });
 
         // Inject subtitle overlays + GSAP animations into composition
@@ -397,9 +397,9 @@ async function generateInBackground(videoId, prompt, options) {
         composition = composition.replace('</body>', `${overlaysHtml}\n</body>`);
 
         // Append GSAP timeline calls after the timeline creation
-        // Find window.__timelines["main"] = mainTl; and append after it
+        // Match window.__timelines["main"] = <variable>;
         composition = composition.replace(
-          /(window\.__timelines\["main"\]\s*=\s*mainTl;)/,
+          /(window\.__timelines\[?"main"?\]\s*=\s*\w+;)/,
           `$1\n${gsapAnimations}`
         );
 
