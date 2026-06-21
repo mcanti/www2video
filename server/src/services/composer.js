@@ -87,6 +87,7 @@ IMPORTANT — You MUST follow the HyperFrames pattern EXACTLY:
 - NO audio or video elements in the HTML (we add them separately)
 - NOTĂ: Watermark-ul logo al aplicației e adăugat automat de sistem — NU include watermark-ul aplicației în HTML
 - Dacă primești un logo al site-ului/clientului (brand logo), îl poți include ca element vizual în compoziție (ex: în colț, în ultima scenă, ca element decorativ)
+`;
 
   const userPrompt = `Create a ${duration}-second video composition for: ${prompt}
 
@@ -241,14 +242,6 @@ The total duration is EXACTLY ${duration} seconds. If there are multiple scenes,
         html = html.replace(
           '</body>',
           `  <img src="${WATERMARK_URL}" style="position:absolute;bottom:20px;right:20px;width:100px;opacity:0.5;z-index:999;pointer-events:none;" alt="watermark" />\n</body>`
-        );
-      }
-
-      // Fix 11: Add brand logo if provided (separate from watermark, as a brand element)
-      if (BRAND_LOGO_DATA_URI && !html.includes('brand-logo')) {
-        html = html.replace(
-          '</body>',
-          `  <img src="${BRAND_LOGO_DATA_URI}" class="brand-logo" style="position:absolute;bottom:20px;left:20px;width:80px;z-index:998;pointer-events:none;" alt="brand logo" />\n</body>`
         );
       }
 
