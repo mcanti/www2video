@@ -2,6 +2,14 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from '../i18n/useTranslation.jsx';
 import styles from './Generator.module.css';
 
+// ── Lucide Icons ──
+import {
+  Sparkles, Settings, Play, Pause, RotateCcw, Download, Copy, Check,
+  X, ChevronDown, Clock, Bug, Maximize2, ExternalLink, Trash2,
+  Volume2, Subtitles, Globe, Languages, Loader, AlertCircle,
+  CheckCircle, Eye, Plus, FileText, Monitor,
+} from 'lucide-react';
+
 const API = '';
 const LS_KEY = 'www2video_history';
 
@@ -48,19 +56,11 @@ function loadHistory() {
 function saveToHistory(v) {
   const list = loadHistory().filter(item => item.id !== v.id);
   list.unshift({
-    id: v.id,
-    prompt: v.prompt,
-    status: v.status,
-    duration: v.duration || 10,
-    width: v.width || 1280,
-    height: v.height || 720,
-    audioPrompt: v.audioPrompt || '',
-    useAudio: v.useAudio || false,
-    useSubtitles: v.useSubtitles || false,
-    voiceName: v.voiceName || 'Kore',
-    useWebsite: v.useWebsite || false,
-    sourceUrl: v.sourceUrl || '',
-    created_at: v.created_at || new Date().toISOString(),
+    id: v.id, prompt: v.prompt, status: v.status, duration: v.duration || 10,
+    width: v.width || 1280, height: v.height || 720, audioPrompt: v.audioPrompt || '',
+    useAudio: v.useAudio || false, useSubtitles: v.useSubtitles || false,
+    voiceName: v.voiceName || 'Kore', useWebsite: v.useWebsite || false,
+    sourceUrl: v.sourceUrl || '', created_at: v.created_at || new Date().toISOString(),
   });
   localStorage.setItem(LS_KEY, JSON.stringify(list.slice(0, 20)));
 }
@@ -109,17 +109,6 @@ const RESOLUTIONS = [
   { value: '1080x1080', label: '1080×1080 (Square)' },
 ];
 
-function getLumiDefaults(t) {
-  return {
-    prompt: t('lumi.prompt'),
-    duration: 10,
-    useAudio: true,
-    audioPrompt: t('lumi.narration'),
-    useWebsite: true,
-    sourceUrl: 'https://lumi.bot',
-  };
-}
-
 /* ========== HELPERS ========== */
 
 function fmtTime(seconds) {
@@ -128,26 +117,25 @@ function fmtTime(seconds) {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-const historyStatusIcon = (s) => {
-  if (s === 'ready') return '✅';
-  if (s === 'composition_ready') return '👁️';
-  if (s === 'failed') return '❌';
-  return '⏳';
-};
-
 const canInteract = (s) => s === 'ready' || s === 'failed' || s === 'composition_ready';
 
 const stepGroups = {
   'queued': -1, 'initializing': 0, 'initialized': 0,
   'generating_composition': 1, 'composition_ai': 1, 'composition_done': 1,
   'generating_audio': 1, 'audio_done': 1, 'audio_skip': 1,
-  'writing_composition': 2,
-  'validating': 3, 'lint_warning': 3, 'validated': 3,
-  'composition_ready': 3,
-  'rendering_video': 4,
-  'finalizing': 5,
+  'writing_composition': 2, 'validating': 3, 'lint_warning': 3, 'validated': 3,
+  'composition_ready': 3, 'rendering_video': 4, 'finalizing': 5,
   'fetching_website': 0, 'extracting_identity': 1, 'saving_identity': 2,
   'ready': 6, 'failed': 6,
+};
+
+/* ========== STATUS ICON ========== */
+
+const StatusIcon = ({ status }) => {
+  if (status === 'ready') return <CheckCircle size={16} className={styles.iconGreen} />;
+  if (status === 'composition_ready') return <Eye size={16} className={styles.iconPurple} />;
+  if (status === 'failed') return <AlertCircle size={16} className={styles.iconRed} />;
+  return <Loader size={16} className={styles.iconSpin} />;
 };
 
 /* ========== MAIN COMPONENT ========== */
@@ -187,13 +175,8 @@ export default function Generator() {
   const [videoCurrentTime, setVideoCurrentTime] = useState(0);
   const [videoDuration, setVideoDuration] = useState(0);
 
-  const [expandedSections, setExpandedSections] = useState({
-    content: true, technical: false, audio: false, advanced: false,
-  });
-
-  const toggleSection = (section) => {
-    setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
-  };
+  /* ── SINGLE collapsible settings section ── */
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const isDebug = window.location.search.includes('debug=true');
 
@@ -208,10 +191,9 @@ export default function Generator() {
         setHistory(loadHistory());
       }
     }
-
     if (data.status === 'composition_ready') setMode('preview_composition');
     else if (data.status === 'ready') setMode('preview');
-    else if (data.status === 'failed') { setError(data.error || 'Generation failed'); setMode('error'); }
+    else if (data.status === 'failed') { setError(data.error || t('error.generation_failed')); setMode('error'); }
   };
 
   const status = usePollStatus(
@@ -237,18 +219,11 @@ export default function Generator() {
     if (v.status === 'generating') setMode('generating');
     else setMode(v.status === 'composition_ready' ? 'preview_composition' : 'preview');
     setPrompt(v.prompt || '');
-    setDuration(v.duration || 10);
-    setWidth(v.width || 1280);
-    setHeight(v.height || 720);
-    setUseAudio(v.useAudio || false);
-    setUseSubtitles(v.useSubtitles || false);
-    setAudioPrompt(v.audioPrompt || '');
-    setVoiceName(v.voiceName || 'Kore');
-    setUseWebsite(v.useWebsite || false);
-    setUrl(v.sourceUrl || '');
-    setHistoryStatus(null);
-    setError('');
-    setHistoryExpanded(false);
+    setDuration(v.duration || 10); setWidth(v.width || 1280); setHeight(v.height || 720);
+    setUseAudio(v.useAudio || false); setUseSubtitles(v.useSubtitles || false);
+    setAudioPrompt(v.audioPrompt || ''); setVoiceName(v.voiceName || 'Kore');
+    setUseWebsite(v.useWebsite || false); setUrl(v.sourceUrl || '');
+    setHistoryStatus(null); setError(''); setHistoryExpanded(false);
     try {
       const res = await fetch(`${API}/api/video/${v.id}/status`);
       const data = await res.json();
@@ -288,7 +263,6 @@ export default function Generator() {
     } catch (err) { setError(err.message); setMode('error'); }
   };
 
-  /* ---- Render MP4 ---- */
   const handleRenderMP4 = async () => {
     if (!videoId) return;
     setMode('rendering'); setError('');
@@ -308,13 +282,6 @@ export default function Generator() {
   };
 
   const handleRegenerate = () => { setVideoId(null); handleGenerate(); };
-
-  const loadLumiDefaults = () => {
-    const defaults = getLumiDefaults(t);
-    setPrompt(defaults.prompt); setDuration(defaults.duration);
-    setUseAudio(defaults.useAudio); setAudioPrompt(defaults.audioPrompt);
-    setUseWebsite(defaults.useWebsite); setUrl(defaults.sourceUrl);
-  };
 
   /* ---- Video controls ---- */
   const handleVideoPlayPause = useCallback(() => {
@@ -356,7 +323,7 @@ export default function Generator() {
     const player = playerRef.current;
     if (!player) return;
     const onReady = (e) => { setPlayerReady(true); setPlayerDuration(e.detail?.duration || 0); };
-    const onError = (e) => { console.error('[hyperframes-player] error:', e); setError(t('preview.error_player')); };
+    const onError = () => { setError(t('preview.error_player')); };
     player.addEventListener('ready', onReady);
     player.addEventListener('error', onError);
     setPlayerReady(false); setPlayerDuration(0);
@@ -367,7 +334,7 @@ export default function Generator() {
   const isGenerating = mode === 'generating' || mode === 'rendering';
   const showBottomBar = mode === 'preview' || mode === 'preview_composition';
 
-  /* ---- Timeline steps for progress ---- */
+  /* ---- Timeline steps ---- */
   const timelineSteps = [
     { step: 'initializing', key: 'progress.preparing' },
     { step: 'generating_composition', key: 'progress.content' },
@@ -379,7 +346,7 @@ export default function Generator() {
 
   return (
     <div className={styles.app}>
-      {/* ===== HEADER ===== */}
+      {/* ══════ HEADER ══════ */}
       <header className={styles.header}>
         <img src="/assets/logo-inv.png" className={styles.logo} alt="Cognitum" />
         <div className={styles.headerTitleGroup}>
@@ -387,63 +354,60 @@ export default function Generator() {
           <span className={styles.subtitle}>{t('header.subtitle')}</span>
         </div>
         <div className={styles.headerActions}>
-          <button
-            onClick={toggleLang}
-            className={styles.langBtn}
-            aria-label={lang === 'ro' ? 'Switch to English' : 'Schimbă în Română'}
-            title={lang === 'ro' ? 'Switch to English' : 'Schimbă în Română'}
-          >
-            {t('header.lang_toggle')}
+          <button onClick={toggleLang} className={styles.iconBtn} title={lang === 'ro' ? 'English' : 'Română'}>
+            <Languages size={18} />
+            <span style={{ fontSize: 11, fontWeight: 600 }}>{t('header.lang_toggle')}</span>
           </button>
           <button
             onClick={() => setDebugOpen(!debugOpen)}
-            className={`${styles.headerBtn} ${debugOpen ? styles.headerBtnActive : ''}`}
-            aria-label={debugOpen ? t('header.debug_hide') : t('header.debug_show')}
+            className={`${styles.iconBtn} ${debugOpen ? styles.iconBtnActive : ''}`}
+            title={debugOpen ? t('header.debug_hide') : t('header.debug_show')}
           >
-            {debugOpen ? t('header.debug_hide') : t('header.debug_show')}
+            <Bug size={18} />
           </button>
           {isDebug && <span className={styles.debugBadge}>DEBUG</span>}
         </div>
       </header>
 
       <main className={styles.main}>
-        {/* ===== DEBUG QUICK-LOAD ===== */}
+        {/* ══════ DEBUG QUICK-LOAD ══════ */}
         {isDebug && (
           <div className={styles.debugQuickPanel}>
-            <div className={styles.debugQuickHeader}>
-              <span className={styles.debugQuickTitle}>⚙️ {t('debug.title')}</span>
-              <button onClick={loadLumiDefaults} className={styles.debugQuickBtn}>
-                {t('debug.load_defaults')}
-              </button>
-            </div>
-            <p className={styles.debugQuickText}>{t('debug.help')}</p>
+            <span>{t('debug.title')}</span>
+            <button onClick={() => {
+              setPrompt(t('lumi.prompt')); setDuration(10);
+              setUseAudio(true); setAudioPrompt(t('lumi.narration'));
+              setUseWebsite(true); setUrl('https://lumi.bot');
+            }} className={styles.btnOutlineSm}>
+              {t('debug.load_defaults')}
+            </button>
           </div>
         )}
 
-        {/* ===== DEBUG INFO PANEL ===== */}
+        {/* ══════ DEBUG INFO PANEL ══════ */}
         {debugOpen && (
           <div className={styles.debugPanel}>
             <div className={styles.debugPanelHeader}>
               <span className={styles.debugPanelTitle}>{t('debug.panel_title')}</span>
-              <button onClick={() => setDebugOpen(false)} className={styles.debugClose} aria-label={t('debug.close')}>
-                {t('debug.close')}
+              <button onClick={() => setDebugOpen(false)} className={styles.btnGhostSm} aria-label={t('debug.close')}>
+                <X size={16} />
               </button>
             </div>
             <div className={styles.debugPanelBody}>
               {videoId ? (
                 <>
-                  <DebugRow label={t('debug.video_id')} value={videoId} />
-                  <DebugRow label={t('debug.mode')} value={mode} />
+                  <div className={styles.debugRow}><span>{t('debug.video_id')}</span><code>{videoId}</code></div>
+                  <div className={styles.debugRow}><span>{t('debug.mode')}</span><code>{mode}</code></div>
                   {status && (
                     <div className={styles.debugSection}>
-                      <div className={styles.debugLabel}>{t('debug.status')}</div>
+                      <div className={styles.debugSectionTitle}>{t('debug.status')}</div>
                       <pre className={styles.debugPre}>{JSON.stringify(status, null, 2)}</pre>
                     </div>
                   )}
                   {debugHtml && (
                     <div className={styles.debugSection}>
-                      <div className={styles.debugLabel}>{t('debug.composition_html')}</div>
-                      <button onClick={() => setShowDetails(prev => !prev)} className={styles.debugToggle}>
+                      <div className={styles.debugSectionTitle}>{t('debug.composition_html')}</div>
+                      <button onClick={() => setShowDetails(prev => !prev)} className={styles.btnGhostSm}>
                         {showDetails ? t('debug.hide_html') : t('debug.show_html')} ({Math.round(debugHtml.length / 1024)} KB)
                       </button>
                       {showDetails && <pre className={styles.debugCode}>{debugHtml}</pre>}
@@ -457,128 +421,135 @@ export default function Generator() {
           </div>
         )}
 
-        {/* ===== TWO-COLUMN LAYOUT ===== */}
+        {/* ══════ TWO-COLUMN LAYOUT ══════ */}
         <div className={styles.layout}>
-          {/* ---- LEFT: FORM ---- */}
+          {/* ═══ LEFT: FORM ═══ */}
           <div className={styles.formPanel}>
-            {/* Content Section */}
-            <SectionHeader icon="📝" title={t('sections.content')} section="content" expanded={expandedSections.content} onToggle={toggleSection} />
-            <SectionBody expanded={expandedSections.content}>
-              <textarea
-                value={prompt}
-                onChange={e => setPrompt(e.target.value)}
-                placeholder={t('form.prompt_placeholder')}
-                rows={4}
-                className={styles.textarea}
-              />
-            </SectionBody>
+            {/* ── Prompt (always visible) ── */}
+            <textarea
+              value={prompt}
+              onChange={e => setPrompt(e.target.value)}
+              placeholder={t('form.prompt_placeholder')}
+              rows={5}
+              className={styles.promptTextarea}
+            />
 
-            {/* Technical Section */}
-            <SectionHeader icon="⚙️" title={t('sections.technical')} section="technical" expanded={expandedSections.technical} onToggle={toggleSection} />
-            <SectionBody expanded={expandedSections.technical}>
-              <div className={styles.inlineFields}>
-                <div className={styles.fieldSm}>
-                  <label className={styles.label}>{t('form.duration_label')}</label>
-                  <input type="text" inputMode="numeric" value={duration}
-                    onChange={e => { const v = e.target.value; if (v === '' || /^\d+$/.test(v)) { const n = parseInt(v, 10); if (n >= 1 && n <= 120) setDuration(n); else if (v === '') setDuration(''); } }}
-                    onBlur={e => { const n = parseInt(e.target.value, 10); if (isNaN(n) || n < 1) setDuration(10); else if (n > 120) setDuration(120); else setDuration(n); }}
-                    className={styles.inputSm}
-                  />
+            {/* ── SINGLE collapsible SETTINGS section ── */}
+            <button
+              onClick={() => setSettingsOpen(!settingsOpen)}
+              className={`${styles.settingsToggle} ${settingsOpen ? styles.settingsToggleOpen : ''}`}
+              aria-expanded={settingsOpen}
+            >
+              <Settings size={16} />
+              <span>{t('sections.settings')}</span>
+              <ChevronDown size={16} className={`${styles.chevron} ${settingsOpen ? styles.chevronOpen : ''}`} />
+            </button>
+
+            {settingsOpen && (
+              <div className={styles.settingsBody}>
+                {/* Duration + Resolution */}
+                <div className={styles.fieldRow}>
+                  <div className={styles.fieldSm}>
+                    <label className={styles.fieldLabel}>{t('form.duration_label')}</label>
+                    <input type="text" inputMode="numeric" value={duration}
+                      onChange={e => { const v = e.target.value; if (v === '' || /^\d+$/.test(v)) { const n = parseInt(v, 10); if (n >= 1 && n <= 120) setDuration(n); else if (v === '') setDuration(''); } }}
+                      onBlur={e => { const n = parseInt(e.target.value, 10); if (isNaN(n) || n < 1) setDuration(10); else if (n > 120) setDuration(120); else setDuration(n); }}
+                      className={styles.inputSm}
+                    />
+                  </div>
+                  <div className={styles.fieldGrow}>
+                    <label className={styles.fieldLabel}>{t('form.resolution_label')}</label>
+                    <select value={`${width}x${height}`}
+                      onChange={e => { const [w, h] = e.target.value.split('x').map(Number); setWidth(w); setHeight(h); }}
+                      className={styles.select}
+                    >
+                      {RESOLUTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                    </select>
+                  </div>
                 </div>
-                <div className={styles.fieldGrow}>
-                  <label className={styles.label}>{t('form.resolution_label')}</label>
-                  <select value={`${width}x${height}`}
-                    onChange={e => { const [w, h] = e.target.value.split('x').map(Number); setWidth(w); setHeight(h); }}
-                    className={styles.select}
-                  >
-                    {RESOLUTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-                  </select>
-                </div>
+
+                <div className={styles.divider} />
+
+                {/* Audio */}
+                <label className={styles.checkRow}>
+                  <input type="checkbox" checked={useAudio} onChange={e => setUseAudio(e.target.checked)} className={styles.checkbox} />
+                  <Volume2 size={16} className={styles.checkIcon} />
+                  <span>{t('form.audio_narration')}</span>
+                </label>
+                {useAudio && (
+                  <div className={styles.conditionalFields}>
+                    <textarea value={audioPrompt} onChange={e => setAudioPrompt(e.target.value)}
+                      placeholder={t('form.audio_placeholder')} rows={2}
+                      className={styles.textareaSm}
+                    />
+                    <label className={styles.fieldLabel}>{t('form.voice_label')}</label>
+                    <select value={voiceName} onChange={e => setVoiceName(e.target.value)} className={styles.select}>
+                      {GEMINI_VOICES.map(v => <option key={v.name} value={v.name}>{v.label}</option>)}
+                    </select>
+                  </div>
+                )}
+
+                <div className={styles.divider} />
+
+                {/* Website */}
+                <label className={styles.checkRow}>
+                  <input type="checkbox" checked={useWebsite} onChange={e => setUseWebsite(e.target.checked)} className={styles.checkbox} />
+                  <Globe size={16} className={styles.checkIcon} />
+                  <span>{t('form.website_extract')}</span>
+                </label>
+                {useWebsite && (
+                  <div className={styles.conditionalFields}>
+                    <label className={styles.fieldLabel}>{t('form.website_url_label')}</label>
+                    <input type="text" value={url} onChange={e => setUrl(e.target.value)}
+                      placeholder={t('form.website_url_placeholder')}
+                      className={styles.input}
+                    />
+                  </div>
+                )}
+
+                {/* Subtitles */}
+                <label className={styles.checkRow}>
+                  <input type="checkbox" checked={useSubtitles} onChange={e => setUseSubtitles(e.target.checked)} className={styles.checkbox} />
+                  <Subtitles size={16} className={styles.checkIcon} />
+                  <span>{t('form.subtitles')}</span>
+                </label>
               </div>
-            </SectionBody>
+            )}
 
-            {/* Audio Section */}
-            <SectionHeader icon="🎵" title={t('sections.audio')} section="audio" expanded={expandedSections.audio} onToggle={toggleSection} />
-            <SectionBody expanded={expandedSections.audio}>
-              <label className={styles.checkboxRow}>
-                <input type="checkbox" checked={useAudio} onChange={e => setUseAudio(e.target.checked)} className={styles.checkbox} />
-                <span className={styles.checkboxLabel}>🎵 {t('form.audio_narration')}</span>
-              </label>
-              {useAudio && (
-                <div className={styles.conditionalFields}>
-                  <textarea value={audioPrompt} onChange={e => setAudioPrompt(e.target.value)}
-                    placeholder={t('form.audio_placeholder')} rows={3}
-                    className={styles.textareaSm}
-                  />
-                  <label className={styles.label}>{t('form.voice_label')}</label>
-                  <select value={voiceName} onChange={e => setVoiceName(e.target.value)} className={styles.select}>
-                    {GEMINI_VOICES.map(v => <option key={v.name} value={v.name}>{v.label}</option>)}
-                  </select>
-                </div>
-              )}
-            </SectionBody>
-
-            {/* Advanced Section */}
-            <SectionHeader icon="🌐" title={t('sections.advanced')} section="advanced" expanded={expandedSections.advanced} onToggle={toggleSection} />
-            <SectionBody expanded={expandedSections.advanced}>
-              <label className={styles.checkboxRow}>
-                <input type="checkbox" checked={useWebsite} onChange={e => setUseWebsite(e.target.checked)} className={styles.checkbox} />
-                <span className={styles.checkboxLabel}>🌐 {t('form.website_extract')}</span>
-              </label>
-              {useWebsite && (
-                <div className={styles.conditionalFields}>
-                  <label className={styles.label}>{t('form.website_url_label')}</label>
-                  <input type="text" value={url} onChange={e => setUrl(e.target.value)} placeholder={t('form.website_url_placeholder')} className={styles.input} />
-                </div>
-              )}
-              <label className={`${styles.checkboxRow} ${styles.checkboxRowLast}`}>
-                <input type="checkbox" checked={useSubtitles} onChange={e => setUseSubtitles(e.target.checked)} className={styles.checkbox} />
-                <span className={styles.checkboxLabel}>💬 {t('form.subtitles')}</span>
-              </label>
-            </SectionBody>
-
-            {/* Generate Button (when idle/generating) */}
+            {/* Generate Button (when idle/generating — no bottom bar) */}
             {!showBottomBar && (
-              <div className={styles.formActions}>
-                <button onClick={handleGenerate} disabled={isGenerating || !prompt.trim()} className={styles.btnPrimary}>
-                  {isGenerating ? `⏳ ${t('form.generating')}` : `🚀 ${t('form.generate')}`}
-                </button>
-              </div>
+              <button onClick={handleGenerate} disabled={isGenerating || !prompt.trim()} className={styles.btnGenerate}>
+                {isGenerating ? <><Loader size={18} className={styles.btnSpin} /> {t('form.generating')}</> : <><Sparkles size={18} /> {t('form.generate')}</>}
+              </button>
             )}
           </div>
 
-          {/* ---- RIGHT: OUTPUT ---- */}
+          {/* ═══ RIGHT: OUTPUT ═══ */}
           <div className={styles.outputPanel}>
-            {/* History Panel */}
+            {/* ── History ── */}
             {history.length > 0 && (
               <div className={styles.historyPanel}>
-                <button
-                  className={styles.historyToggle}
-                  onClick={() => setHistoryExpanded(!historyExpanded)}
-                  aria-expanded={historyExpanded}
-                >
-                  <span className={styles.historyToggleIcon}>🕐</span>
+                <button className={styles.historyToggle} onClick={() => setHistoryExpanded(!historyExpanded)} aria-expanded={historyExpanded}>
+                  <Clock size={16} />
                   <span className={styles.historyToggleTitle}>{t('history.title')}</span>
-                  <span className={styles.historyToggleBadge}>{history.length}</span>
-                  <span className={`${styles.historyToggleChevron} ${historyExpanded ? styles.chevronOpen : ''}`}>▾</span>
+                  <span className={styles.historyBadge}>{history.length}</span>
+                  <ChevronDown size={14} className={`${styles.chevron} ${historyExpanded ? styles.chevronOpen : ''}`} />
                 </button>
                 {historyExpanded && (
                   <div className={styles.historyList}>
                     {history.map(v => (
-                      <div key={v.id}
-                        onClick={() => loadHistoryVideo(v)}
+                      <div key={v.id} onClick={() => loadHistoryVideo(v)}
                         className={canInteract(v.status) ? styles.historyItem : styles.historyItemDisabled}
                       >
-                        <span className={styles.historyItemIcon}>{historyStatusIcon(v.status)}</span>
+                        <StatusIcon status={v.status} />
                         <span className={styles.historyItemText}>
                           {v.prompt.length > 48 ? v.prompt.slice(0, 48) + '…' : v.prompt}
                         </span>
-                        <button
-                          onClick={(e) => handleDeleteHistory(e, v.id)}
-                          className={styles.historyItemDelete}
-                          title={t('history.delete')}
-                          aria-label={t('history.delete_aria')}
-                        >✕</button>
+                        <button onClick={(e) => handleDeleteHistory(e, v.id)}
+                          className={styles.historyDelete} title={t('history.delete')}
+                        >
+                          <Trash2 size={14} />
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -586,47 +557,46 @@ export default function Generator() {
               </div>
             )}
 
-            {/* Generating State */}
+            {/* ── Generating ── */}
             {mode === 'generating' && (
               <div className={styles.statusCard}>
-                <div className={styles.spinner} />
+                <Loader size={32} className={styles.spinnerIcon} />
                 <p className={styles.statusText}>
-                  {status?.progress?.step === 'fetching_website' ? `🌐 ${t('progress.extracting')}`
-                    : status?.progress?.step === 'generating_composition' ? `🤖 ${t('progress.generating_content')}`
-                    : status?.progress?.step === 'generating_audio' ? `🎵 ${t('progress.generating_audio')}`
-                    : status?.progress?.message || `⏳ ${t('progress.waiting')}`}
+                  {status?.progress?.step === 'fetching_website' ? t('progress.extracting')
+                    : status?.progress?.step === 'generating_composition' ? t('progress.generating_content')
+                    : status?.progress?.step === 'generating_audio' ? t('progress.generating_audio')
+                    : status?.progress?.message || t('progress.waiting')}
                 </p>
-                <div className={styles.progressSteps}>
+                <div className={styles.progressDots}>
                   {timelineSteps.slice(0, 4).map((s, i) => {
                     const currentStep = status?.progress?.step ? (stepGroups[status.progress.step] ?? -1) : -1;
-                    const done = currentStep > i;
-                    const active = currentStep === i;
-                    return (
-                      <div key={s.step} className={`${styles.progressDot} ${done ? styles.progressDotDone : active ? styles.progressDotActive : ''}`} />
-                    );
+                    return <div key={s.step}
+                      className={`${styles.dot} ${currentStep > i ? styles.dotDone : currentStep === i ? styles.dotActive : ''}`}
+                    />;
                   })}
                 </div>
               </div>
             )}
 
-            {/* Composition Preview */}
+            {/* ── Composition Preview ── */}
             {mode === 'preview_composition' && videoId && (
               <div className={styles.previewCard}>
                 <div className={styles.previewHeader}>
-                  <span className={styles.previewTitle}>👁️ {t('preview.composition_title')}</span>
-                  <span className={styles.previewResolution}>{width}×{height}</span>
-                  <div className={styles.previewSpacer} />
-                  <button onClick={() => setPreviewExpanded(!previewExpanded)} className={styles.btnSm} aria-label={previewExpanded ? t('preview.collapse') : t('preview.expand')}>
-                    {previewExpanded ? t('preview.collapse') : t('preview.expand')}
+                  <Eye size={16} />
+                  <span className={styles.previewTitle}>{t('preview.composition_title')}</span>
+                  <span className={styles.previewRes}>{width}×{height}</span>
+                  <div className={styles.spacer} />
+                  <button onClick={() => setPreviewExpanded(!previewExpanded)} className={styles.btnIconSm}>
+                    <Maximize2 size={14} />
                   </button>
-                  <button onClick={() => window.open(`${API}/api/video/${videoId}/composition`, '_blank')} className={styles.btnIconSm} title={t('preview.open_new_tab')} aria-label={t('preview.open_new_tab')}>
-                    ↗️
+                  <button onClick={() => window.open(`${API}/api/video/${videoId}/composition`, '_blank')} className={styles.btnIconSm} title={t('preview.open_new_tab')}>
+                    <ExternalLink size={14} />
                   </button>
                 </div>
                 {historyStatus && (historyStatus.tts_text || historyStatus.tts_voice) && (
                   <div className={styles.metaBar}>
-                    {historyStatus.tts_text && <span className={styles.metaItem}><b>{t('preview.narration')}:</b> {historyStatus.tts_text}</span>}
-                    {historyStatus.tts_voice && <span className={styles.metaItem}><b>{t('preview.voice')}:</b> {historyStatus.tts_voice}</span>}
+                    {historyStatus.tts_text && <span><b>{t('preview.narration')}:</b> {historyStatus.tts_text}</span>}
+                    {historyStatus.tts_voice && <span><b>{t('preview.voice')}:</b> {historyStatus.tts_voice}</span>}
                   </div>
                 )}
                 <div className={previewExpanded ? styles.playerExpanded : styles.playerBox}>
@@ -636,35 +606,30 @@ export default function Generator() {
                     controls
                     className={styles.player}
                     style={{ aspectRatio: previewExpanded ? undefined : `${width}/${height}` }}
-                    title="Composition preview"
                   />
                 </div>
               </div>
             )}
 
-            {/* Rendering State */}
+            {/* ── Rendering ── */}
             {mode === 'rendering' && (
               <div className={styles.statusCard}>
-                <div className={`${styles.spinner} ${styles.spinnerGreen}`} />
-                <p className={styles.statusText}>🎬 {t('preview.rendering')}</p>
-                <div className={styles.progressBar}>
-                  <div className={styles.progressBarFill} />
-                </div>
+                <Loader size={32} className={styles.spinnerIcon} style={{ color: 'var(--color-green-500)' }} />
+                <p className={styles.statusText}>{t('preview.rendering')}</p>
+                <div className={styles.progressBar}><div className={styles.progressFill} /></div>
               </div>
             )}
 
-            {/* MP4 Preview */}
+            {/* ── MP4 Preview ── */}
             {mode === 'preview' && videoId && (
               <div className={styles.previewCard}>
-                {historyStatus && (
+                {historyStatus && (historyStatus.tts_text || historyStatus.tts_voice) && (
                   <div className={styles.metaBar}>
-                    {historyStatus.tts_text && <span className={styles.metaItem}><b>{t('preview.narration')}:</b> {historyStatus.tts_text}</span>}
-                    {historyStatus.tts_voice && <span className={styles.metaItem}><b>{t('preview.voice')}:</b> {historyStatus.tts_voice}</span>}
+                    {historyStatus.tts_text && <span><b>{t('preview.narration')}:</b> {historyStatus.tts_text}</span>}
+                    {historyStatus.tts_voice && <span><b>{t('preview.voice')}:</b> {historyStatus.tts_voice}</span>}
                   </div>
                 )}
-                <video
-                  ref={previewRef}
-                  className={styles.video}
+                <video ref={previewRef} className={styles.video}
                   style={{ aspectRatio: `${width}/${height}` }}
                   onTimeUpdate={handleVideoTimeUpdate}
                   onLoadedMetadata={handleVideoLoadedMetadata}
@@ -675,52 +640,55 @@ export default function Generator() {
                 </video>
                 <div className={styles.videoControls}>
                   <button onClick={handleVideoPlayPause} className={styles.videoCtrlBtn} aria-label={videoPlaying ? t('actions.pause') : t('actions.play')}>
-                    {videoPlaying ? '⏸️' : '▶️'}
+                    {videoPlaying ? <Pause size={18} /> : <Play size={18} />}
                   </button>
                   <button onClick={handleVideoRestart} className={styles.videoCtrlBtn} aria-label={t('actions.restart')}>
-                    🔄
+                    <RotateCcw size={18} />
                   </button>
-                  <span className={styles.videoTime}>
-                    {fmtTime(videoCurrentTime)} / {fmtTime(videoDuration || duration)}
-                  </span>
+                  <span className={styles.videoTime}>{fmtTime(videoCurrentTime)} / {fmtTime(videoDuration || duration)}</span>
                 </div>
               </div>
             )}
 
-            {/* Error */}
-            {error && <div className={styles.errorBox}>❌ {error}</div>}
+            {/* ── Error ── */}
+            {error && (
+              <div className={styles.errorBox}>
+                <AlertCircle size={16} />
+                <span>{error}</span>
+              </div>
+            )}
           </div>
         </div>
       </main>
 
-      {/* ===== FIXED BOTTOM BAR ===== */}
+      {/* ══════ FIXED BOTTOM BAR ══════ */}
       {showBottomBar && (
         <>
           <div className={styles.bottomBar}>
             <div className={styles.bottomBarInner}>
-              <button onClick={handleGenerate} disabled={isGenerating || !prompt.trim()} className={styles.btnPrimary} style={{ flex: 1 }}>
-                {isGenerating ? `⏳ ${t('form.generating')}` : `🚀 ${t('actions.generate_new')}`}
+              <button onClick={handleGenerate} disabled={isGenerating || !prompt.trim()} className={styles.btnGenerate} style={{ flex: 1 }}>
+                {isGenerating ? <><Loader size={18} className={styles.btnSpin} /> {t('form.generating')}</> : <><Sparkles size={18} /> {t('actions.generate_new')}</>}
               </button>
               {mode === 'preview' && (
                 <button onClick={handleDownload} className={styles.btnSuccess} style={{ flex: 1 }}>
-                  {t('actions.download_mp4')}
+                  <Download size={18} /> {t('actions.download_mp4')}
                 </button>
               )}
               {mode === 'preview' && (
                 <button onClick={() => {
                   navigator.clipboard.writeText(`${window.location.origin}/api/video/${videoId}/download`);
                   setCopiedUrl(true); setTimeout(() => setCopiedUrl(false), 2000);
-                }} className={styles.btnSecondary}>
-                  {copiedUrl ? t('actions.copied') : t('actions.copy_url')}
+                }} className={styles.btnOutline} style={{ flex: 1 }}>
+                  {copiedUrl ? <><Check size={18} /> {t('actions.copied')}</> : <><Copy size={18} /> {t('actions.copy_url')}</>}
                 </button>
               )}
               {mode === 'preview_composition' && (
                 <>
                   <button onClick={handleRenderMP4} className={styles.btnSuccess} style={{ flex: 1 }}>
-                    {t('actions.download_mp4')}
+                    <Download size={18} /> {t('actions.download_mp4')}
                   </button>
-                  <button onClick={handleRegenerate} className={styles.btnSecondary} style={{ flex: 1 }}>
-                    {t('actions.regenerate')}
+                  <button onClick={handleRegenerate} className={styles.btnOutline} style={{ flex: 1 }}>
+                    <RotateCcw size={18} /> {t('actions.regenerate')}
                   </button>
                 </>
               )}
@@ -729,39 +697,6 @@ export default function Generator() {
           <div className={styles.bottomBarSpacer} />
         </>
       )}
-    </div>
-  );
-}
-
-/* ========== SUB-COMPONENTS ========== */
-
-function SectionHeader({ icon, title, section, expanded, onToggle }) {
-  return (
-    <button
-      onClick={() => onToggle(section)}
-      className={`${styles.sectionHeader} ${expanded ? styles.sectionHeaderOpen : ''}`}
-      aria-expanded={expanded}
-    >
-      <span className={styles.sectionHeaderIcon}>{icon}</span>
-      <span className={styles.sectionHeaderTitle}>{title}</span>
-      <span className={`${styles.sectionHeaderChevron} ${expanded ? styles.chevronOpen : ''}`}>▾</span>
-    </button>
-  );
-}
-
-function SectionBody({ expanded, children }) {
-  return (
-    <div className={`${styles.sectionBody} ${expanded ? styles.sectionBodyOpen : ''}`}>
-      <div className={styles.sectionBodyInner}>{children}</div>
-    </div>
-  );
-}
-
-function DebugRow({ label, value }) {
-  return (
-    <div className={styles.debugRow}>
-      <span className={styles.debugLabel}>{label}</span>
-      <code className={styles.debugMono}>{value}</code>
     </div>
   );
 }

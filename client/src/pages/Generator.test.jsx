@@ -24,7 +24,6 @@ const localStorageMock = (() => {
 })();
 Object.defineProperty(window, 'localStorage', { value: localStorageMock });
 
-// Wrapper with I18nProvider — default lang is RO
 function renderWithI18n(ui) {
   return render(<I18nProvider>{ui}</I18nProvider>);
 }
@@ -42,12 +41,9 @@ describe('Generator Component', () => {
     expect(screen.getByText('Generator video AI')).toBeInTheDocument();
   });
 
-  it('renders collapsible section headers', () => {
+  it('renders the settings toggle button', () => {
     renderWithI18n(<Generator />);
-    expect(screen.getByText('Conținut')).toBeInTheDocument();
-    expect(screen.getByText('Setări tehnice')).toBeInTheDocument();
-    expect(screen.getByText('Audio')).toBeInTheDocument();
-    expect(screen.getByText('Avansat')).toBeInTheDocument();
+    expect(screen.getByText('Setări')).toBeInTheDocument();
   });
 
   it('renders the generate button', () => {
@@ -61,24 +57,28 @@ describe('Generator Component', () => {
     expect(textarea).toBeInTheDocument();
   });
 
-  it('shows technical settings when section expanded', () => {
+  it('shows settings fields when toggle is clicked', () => {
     renderWithI18n(<Generator />);
-    const techSection = screen.getByText('Setări tehnice');
-    fireEvent.click(techSection);
-    expect(screen.getByText('Durată (secunde)')).toBeInTheDocument();
+    const settingsBtn = screen.getByText('Setări');
+    fireEvent.click(settingsBtn);
+
+    expect(screen.getByText('Durată (sec)')).toBeInTheDocument();
     expect(screen.getByText('Rezoluție')).toBeInTheDocument();
+    expect(screen.getByText('Narare audio')).toBeInTheDocument();
   });
 
-  it('toggles audio section to reveal voice selector', () => {
+  it('shows voice selector when audio narration is enabled', () => {
     renderWithI18n(<Generator />);
-    const audioSection = screen.getByText('Audio');
-    fireEvent.click(audioSection);
-    // The audio checkbox — the label contains "Narare audio" text
+    // Open settings
+    const settingsBtn = screen.getByText('Setări');
+    fireEvent.click(settingsBtn);
+
+    // Enable audio narration
     const audioCheckbox = screen.getByLabelText(/Narare audio/);
     fireEvent.click(audioCheckbox);
-    waitFor(() => {
-      expect(screen.getByText('Voce narator')).toBeInTheDocument();
-    });
+
+    // Voice selector should appear
+    expect(screen.getByText('Voce narator')).toBeInTheDocument();
   });
 
   it('disables generate button when prompt is empty', () => {
@@ -99,11 +99,9 @@ describe('Generator Component', () => {
     const user = userEvent.setup();
     renderWithI18n(<Generator />);
 
-    // Type a prompt
     const textarea = screen.getByPlaceholderText(/Descrie videoclipul/);
     await user.type(textarea, 'Test video');
 
-    // Click generate
     const btn = screen.getByText(/Generează video/);
     expect(btn).not.toBeDisabled();
     await user.click(btn);
@@ -118,6 +116,12 @@ describe('Generator Component', () => {
 });
 
 describe('Generator — render states', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorageMock.clear();
+    localStorageMock.getItem.mockReturnValue('[]');
+  });
+
   it('shows idle state initially', () => {
     renderWithI18n(<Generator />);
     expect(screen.queryByText(/Se pregătește/)).not.toBeInTheDocument();

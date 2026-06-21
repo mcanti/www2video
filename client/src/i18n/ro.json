@@ -2,36 +2,33 @@
   "header": {
     "title": "www2video",
     "subtitle": "Generator video AI",
-    "debug_show": "🔍 Debug",
-    "debug_hide": "🔍 Ascunde",
+    "debug_show": "Debug",
+    "debug_hide": "Ascunde",
     "lang_toggle": "EN"
   },
   "debug": {
     "title": "Debug Tools",
-    "load_defaults": "🚀 Încarcă valorile LumiBot",
+    "load_defaults": "Încarcă LumiBot",
     "help": "Pre-populează formularul cu valori pentru un video de lansare LumiBot.",
-    "panel_title": "🔍 Detalii Debug",
-    "close": "✕",
+    "panel_title": "Detalii Debug",
+    "close": "Închide",
     "video_id": "Video ID",
     "mode": "Mod",
     "status": "Status",
     "composition_html": "HTML Compoziție",
-    "show_html": "▼ Arată",
-    "hide_html": "▲ Ascunde",
+    "show_html": "Arată",
+    "hide_html": "Ascunde",
     "empty": "Nicio generare activă. Pornește o generare pentru a vedea detaliile aici."
   },
   "sections": {
-    "content": "Conținut",
-    "technical": "Setări tehnice",
-    "audio": "Audio",
-    "advanced": "Avansat"
+    "settings": "Setări"
   },
   "form": {
     "prompt_placeholder": "Descrie videoclipul pe care vrei să-l creezi...",
-    "duration_label": "Durată (secunde)",
+    "duration_label": "Durată (sec)",
     "resolution_label": "Rezoluție",
     "audio_narration": "Narare audio",
-    "audio_placeholder": "Scrie textul pe care să-l spună naratorul sau lasă gol pentru generare automată",
+    "audio_placeholder": "Scrie textul pentru narator sau lasă gol pentru generare automată",
     "voice_label": "Voce narator",
     "website_extract": "Extrage identitate vizuală de pe site",
     "website_url_label": "URL site",
@@ -39,6 +36,9 @@
     "subtitles": "Subtitrări",
     "generate": "Generează video",
     "generating": "Se generează..."
+  },
+  "error": {
+    "generation_failed": "Generare eșuată"
   },
   "history": {
     "title": "Istoric",
@@ -59,20 +59,18 @@
   },
   "preview": {
     "composition_title": "Previzualizare compoziție",
-    "expand": "🔼 Extinde",
-    "collapse": "🔽 Restrânge",
-    "open_new_tab": "Deschide într-un tab nou",
+    "open_new_tab": "Deschide în tab nou",
     "narration": "Narare",
     "voice": "Voce",
     "rendering": "Se generează videoclipul MP4...",
     "error_player": "Eroare la încărcarea playerului"
   },
   "actions": {
-    "generate_new": "Generează nouă",
-    "download_mp4": "⬇️ Download MP4",
-    "copy_url": "📋 Copy URL",
-    "copied": "✅ Copiat!",
-    "regenerate": "🔄 Regenerare",
+    "generate_new": "Generează nou",
+    "download_mp4": "Download MP4",
+    "copy_url": "Copiază URL",
+    "copied": "Copiat!",
+    "regenerate": "Regenerează",
     "play": "Redare",
     "pause": "Pauză",
     "restart": "Reîncepe"
