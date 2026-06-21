@@ -31,20 +31,10 @@ export async function composeFromPrompt(prompt, options = {}) {
   const width = options.width || 1280;
   const height = options.height || 720;
 
-  // Load brand logo as data URI if provided
-  let BRAND_LOGO_DATA_URI = null;
-  if (options.brandLogoPath) {
-    try {
-      if (fs.existsSync(options.brandLogoPath)) {
-        const buf = fs.readFileSync(options.brandLogoPath);
-        const ext = path.extname(options.brandLogoPath).toLowerCase();
-        const mimeMap = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.webp': 'image/webp' };
-        const mime = mimeMap[ext] || 'image/png';
-        BRAND_LOGO_DATA_URI = `data:${mime};base64,${buf.toString('base64')}`;
-      }
-    } catch (e) {
-      console.warn('[composer] Could not read brand logo:', e.message);
-    }
+  // Brand logo relative path (within workDir, e.g. 'assets/logo-site.png')
+  let BRAND_LOGO_REL_PATH = null;
+  if (options.brandLogoRelPath) {
+    BRAND_LOGO_REL_PATH = options.brandLogoRelPath;
   }
 
   const systemPrompt = `You are a HyperFrames composition expert. Generate ONLY the HTML content for a video composition.
@@ -109,8 +99,8 @@ The total duration is EXACTLY ${duration} seconds. If there are multiple scenes,
   if (options.narrationText) {
     brandSection.push(`Text content to include: ${options.narrationText}`);
   }
-  if (BRAND_LOGO_DATA_URI) {
-    brandSection.push(`A brand logo image is available. Include it as a visual element in the composition — typically in the corner of the last scene, a brand reveal scene, or as a subtle brand element throughout. Use: <img src="__BRAND_LOGO__" style="..." />`);
+  if (BRAND_LOGO_REL_PATH) {
+    brandSection.push(`A brand logo image is available at "${BRAND_LOGO_REL_PATH}" (relative to this file). Include it as a visual element in the composition — typically in the corner of the last scene, a brand reveal scene, or as a subtle brand element throughout. Use: <img src="__BRAND_LOGO__" style="..." />`);
   }
 
   const fullPrompt = brandSection.length > 0
@@ -133,9 +123,9 @@ The total duration is EXACTLY ${duration} seconds. If there are multiple scenes,
       html = html.replace(/```/g, '');
       html = html.trim();
 
-      // Replace brand logo placeholder with full data URI (it was too large for the prompt)
-      if (BRAND_LOGO_DATA_URI) {
-        html = html.replace(/__BRAND_LOGO__/g, BRAND_LOGO_DATA_URI);
+      // Replace brand logo placeholder with relative path (resolvable from workDir)
+      if (BRAND_LOGO_REL_PATH) {
+        html = html.replace(/__BRAND_LOGO__/g, BRAND_LOGO_REL_PATH);
       }
 
       // Extract actual HTML if wrapped oddly

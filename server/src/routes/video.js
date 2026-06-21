@@ -255,6 +255,31 @@ router.get('/:id/preview', async (req, res) => {
   }
 });
 
+// GET /api/video/:id/assets/:file — serve project files (logo, favicon, etc.)
+router.get('/:id/assets/:file', async (req, res) => {
+  try {
+    const db = await getDb();
+    const video = queryOne(db, 'SELECT * FROM videos WHERE id = ?', [req.params.id]);
+    await saveAndClose(db);
+
+    if (!video || !video.composition_path) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+
+    const filePath = path.resolve(video.composition_path, req.params.file);
+    // Prevent path traversal
+    if (!filePath.startsWith(path.resolve(video.composition_path))) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    res.sendFile(filePath, (err) => {
+      if (err) res.status(404).json({ error: 'File not found' });
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/video/:id/render — trigger MP4 render from existing composition
 // Starts render in background, returns immediately
 router.post('/:id/render', async (req, res) => {
@@ -545,7 +570,7 @@ async function generateInBackground(videoId, prompt, options) {
     if (brandFonts) compositionOptions.brandFonts = brandFonts;
     if (websiteName) compositionOptions.websiteName = websiteName;
     if (themeColor) compositionOptions.themeColor = themeColor;
-    if (brandLogoPath) compositionOptions.brandLogoPath = brandLogoPath;
+    if (brandLogoPath) compositionOptions.brandLogoRelPath = 'assets/logo-site.png';
 
     const html = await composeFromPrompt(enrichedPrompt, compositionOptions);
     await updateDebug(videoId, { composition_html: html.substring(0, 5000) });
