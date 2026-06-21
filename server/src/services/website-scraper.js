@@ -33,15 +33,34 @@ export async function fetchRenderedDOM(url, timeout = 15000) {
 }
 
 /**
- * Extract brand tokens from rendered HTML more thoroughly
- * Returns colors, fonts, theme color, and title/description
+ * Normalize a potentially-relative URL to absolute using baseUrl as base.
+ * Returns null if href is empty. If no baseUrl, returns href as-is.
  */
-export function extractBrandTokens(html) {
+function resolveUrl(href, baseUrl) {
+  if (!href) return null;
+  if (!baseUrl) return href;
+  try {
+    return new URL(href, baseUrl).href;
+  } catch {
+    return href;
+  }
+}
+
+/**
+ * Extract brand tokens from rendered HTML more thoroughly.
+ * Returns colors, fonts, theme color, title, description, and logoUrl.
+ * @param {string} html - Rendered HTML content
+ * @param {string} [baseUrl] - Base URL for resolving relative URLs
+ */
+export function extractBrandTokens(html, baseUrl = null) {
   const colors = new Set();
   const fonts = new Set();
   let themeColor = null;
   let title = '';
   let description = '';
+  let logoUrl = null;
+  let faviconUrl = null;
+  const googleFontsUrls = [];
 
   // Extract <title>
   const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
@@ -68,10 +87,19 @@ export function extractBrandTokens(html) {
   // If we have a theme-color, make sure it's first
   if (themeColor) colors.add(themeColor.toLowerCase());
 
-  // Extract Google Fonts
-  const gfRegex = /fonts\.googleapis\.com\/css2\?family=([^&'"]+)/g;
+  // Extract Google Fonts — preserve the full CSS URL for <link> injection
+  const gfUrlRegex = /https?:\/\/fonts\.googleapis\.com\/css2?\?[^"'\s<>]+/gi;
+  while ((match = gfUrlRegex.exec(html)) !== null) {
+    const url = match[0].replace(/&amp;/g, '&');
+    if (!googleFontsUrls.includes(url)) {
+      googleFontsUrls.push(url);
+    }
+  }
+
+  // Extract Google Fonts family names
+  const gfRegex = /fonts\.googleapis\.com\/css2?\?family=([^"'\s<>]+)/g;
   while ((match = gfRegex.exec(html)) !== null) {
-    const families = match[1].split('&family=');
+    const families = match[1].replace(/&amp;/g, '&').split('&family=');
     families.forEach(f => {
       fonts.add(decodeURIComponent(f).split(':')[0].replace(/\+/g, ' '));
     });
@@ -86,11 +114,49 @@ export function extractBrandTokens(html) {
     }
   }
 
+  // Extract logo URL — priority: favicon → apple-touch-icon → og:image → twitter:image
+  const faviconCandidates = [];
+  const iconRegex = /<link\s+[^>]*?(?:rel="([^"]*)"[^>]*?href="([^"]*)"|href="([^"]*)"[^>]*?rel="([^"]*)")[^>]*?>/gi;
+  while ((match = iconRegex.exec(html)) !== null) {
+    const rel = (match[1] || match[4] || '').toLowerCase();
+    const href = match[2] || match[3] || '';
+    if (!href) continue;
+    if (rel === 'icon' || rel === 'shortcut icon') {
+      faviconCandidates.push({ priority: 1, href });
+    } else if (rel === 'apple-touch-icon') {
+      faviconCandidates.push({ priority: 2, href });
+    } else if (rel === 'apple-touch-icon-precomposed') {
+      faviconCandidates.push({ priority: 3, href });
+    }
+  }
+  faviconCandidates.sort((a, b) => a.priority - b.priority);
+  if (faviconCandidates.length > 0) {
+    faviconUrl = resolveUrl(faviconCandidates[0].href, baseUrl);
+    logoUrl = faviconUrl;
+  }
+
+  // Fallback: og:image meta tag
+  if (!logoUrl) {
+    const ogMatch = html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i)
+      || html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:image["']/i);
+    if (ogMatch) logoUrl = resolveUrl(ogMatch[1], baseUrl);
+  }
+
+  // Fallback: twitter:image meta tag
+  if (!logoUrl) {
+    const twMatch = html.match(/<meta[^>]*name=["']twitter:image["'][^>]*content=["']([^"']+)["']/i)
+      || html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*name=["']twitter:image["']/i);
+    if (twMatch) logoUrl = resolveUrl(twMatch[1], baseUrl);
+  }
+
   return {
     colors: Array.from(colors).slice(0, 8),
     fonts: Array.from(fonts).slice(0, 4),
     themeColor,
     title,
     description,
+    logoUrl,
+    faviconUrl,
+    googleFontsUrls,
   };
 }

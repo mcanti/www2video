@@ -1,4 +1,21 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const LOGO_PATH = path.resolve(__dirname, '../assets/logo-inv.png');
+
+// Cache the logo as data URI so composition HTML is self-contained (works with file:// in Chrome headless)
+let LOGO_DATA_URI = null;
+try {
+  if (fs.existsSync(LOGO_PATH)) {
+    const buf = fs.readFileSync(LOGO_PATH);
+    LOGO_DATA_URI = `data:image/png;base64,${buf.toString('base64')}`;
+  }
+} catch (e) {
+  console.warn('[composer] Could not read local logo:', e.message);
+}
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
@@ -13,6 +30,22 @@ export async function composeFromPrompt(prompt, options = {}) {
   duration = Math.min(Math.max(duration, 1), 120);
   const width = options.width || 1280;
   const height = options.height || 720;
+
+  // Load brand logo as data URI if provided
+  let BRAND_LOGO_DATA_URI = null;
+  if (options.brandLogoPath) {
+    try {
+      if (fs.existsSync(options.brandLogoPath)) {
+        const buf = fs.readFileSync(options.brandLogoPath);
+        const ext = path.extname(options.brandLogoPath).toLowerCase();
+        const mimeMap = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.webp': 'image/webp' };
+        const mime = mimeMap[ext] || 'image/png';
+        BRAND_LOGO_DATA_URI = `data:${mime};base64,${buf.toString('base64')}`;
+      }
+    } catch (e) {
+      console.warn('[composer] Could not read brand logo:', e.message);
+    }
+  }
 
   const systemPrompt = `You are a HyperFrames composition expert. Generate ONLY the HTML content for a video composition.
 
@@ -37,8 +70,10 @@ IMPORTANT — You MUST follow the HyperFrames pattern EXACTLY:
 - Dark background with accent color
 - Professional typography matching the subject
 - Font sizes: headlines 42px+, body 18px+, labels 14px+
-- Use ONLY real font names: Arial, Georgia, Impact, Tahoma, Times New Roman, Trebuchet MS, Verdana, Courier New, Comic Sans MS
+- Use real web-safe font names: Arial, Georgia, Impact, Tahoma, Times New Roman, Trebuchet MS, Verdana, Courier New
+- If brand-specific fonts (e.g. Inter, Roboto, Poppins) are suggested in the prompt, you MAY use them — they will be pre-loaded
 - NEVER use CSS variables like var(--font-body) or var(--primary-font) in font-family
+- Always include a web-safe fallback: e.g. font-family: 'Inter', Arial, sans-serif
 - Padding inside scenes: 80px minimum on all sides
 
 ## CRITICAL Rules
@@ -50,7 +85,8 @@ IMPORTANT — You MUST follow the HyperFrames pattern EXACTLY:
 - Output ONLY the complete HTML starting with <!DOCTYPE html>, ending with </html>
 - NO markdown fences, NO backticks, NO explanations, NO code blocks
 - NO audio or video elements in the HTML (we add them separately)
-- NOTĂ: Watermark-ul logo e adăugat automat de sistem — NU include imagini de logo sau watermark în HTML`;
+- NOTĂ: Watermark-ul logo al aplicației e adăugat automat de sistem — NU include watermark-ul aplicației în HTML
+- Dacă primești un logo al site-ului/clientului (brand logo), îl poți include ca element vizual în compoziție (ex: în colț, în ultima scenă, ca element decorativ)
 
   const userPrompt = `Create a ${duration}-second video composition for: ${prompt}
 
@@ -71,6 +107,10 @@ The total duration is EXACTLY ${duration} seconds. If there are multiple scenes,
   }
   if (options.narrationText) {
     brandSection.push(`Text content to include: ${options.narrationText}`);
+  }
+  if (BRAND_LOGO_DATA_URI) {
+    brandSection.push(`Brand logo (data URI, include this as a visual element): ${BRAND_LOGO_DATA_URI.substring(0, 200)}...`);
+    brandSection.push(`Include the brand logo image in the composition — typically in the corner of the last scene or as a subtle brand element throughout. Use: <img src="${BRAND_LOGO_DATA_URI}" style="..." />`);
   }
 
   const fullPrompt = brandSection.length > 0
@@ -196,11 +236,19 @@ The total duration is EXACTLY ${duration} seconds. If there are multiple scenes,
       }
 
       // Fix 10: Add watermark overlay if not already present
-      const WATERMARK_URL = 'https://cognitum.ro/assets/logo-inv.png';
+      const WATERMARK_URL = LOGO_DATA_URI || 'https://cognitum.ro/assets/logo-inv.png';
       if (!html.includes('watermark')) {
         html = html.replace(
           '</body>',
           `  <img src="${WATERMARK_URL}" style="position:absolute;bottom:20px;right:20px;width:100px;opacity:0.5;z-index:999;pointer-events:none;" alt="watermark" />\n</body>`
+        );
+      }
+
+      // Fix 11: Add brand logo if provided (separate from watermark, as a brand element)
+      if (BRAND_LOGO_DATA_URI && !html.includes('brand-logo')) {
+        html = html.replace(
+          '</body>',
+          `  <img src="${BRAND_LOGO_DATA_URI}" class="brand-logo" style="position:absolute;bottom:20px;left:20px;width:80px;z-index:998;pointer-events:none;" alt="brand logo" />\n</body>`
         );
       }
 

@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import styles from './Generator.module.css';
 
 const API = '';
 const LS_KEY = 'www2video_history';
@@ -17,14 +18,10 @@ function usePollStatus(videoId, onReady) {
         if (cancelled) return;
         setStatus(data);
 
-        // Trigger onReady for both final states and composition_ready (preview step)
         if (data.status === 'ready' || data.status === 'failed' || data.status === 'composition_ready') {
           if (onReady) onReady(data);
-          // Only stop polling for truly terminal states
           if (data.status === 'ready' || data.status === 'failed') return;
-          // For composition_ready, continue polling (user may trigger render)
         }
-        // If status is 'rendering', keep polling until ready/failed
         setTimeout(poll, 1500);
       } catch {
         if (!cancelled) setTimeout(poll, 3000);
@@ -96,6 +93,7 @@ const GEMINI_VOICES = [
   { name: 'Sadaltager', label: 'Male / Knowledgeable, authoritative yet approachable' },
   { name: 'Zubenelgenubi', label: 'Male / Casual, laid-back and conversational' },
 ];
+
 const LUMI_DEFAULTS = {
   prompt: `Product launch video for LumiBot - an AI assistant bot that helps teams automate workflows and boost productivity. 
 
@@ -112,55 +110,42 @@ Scene 3 (7-10s): Strong CTA panel. "Ready to Transform Your Workflow?" in large 
 };
 
 // ========== COLLAPSIBLE SECTION COMPONENTS ==========
-// MUST be outside Generator to avoid remount on every keystroke
 
 const SectionHeader = ({ icon, title, section, expanded, onToggle }) => (
   <div
     onClick={() => onToggle(section)}
-    style={{
-      display: 'flex', alignItems: 'center', gap: 10,
-      padding: '14px 20px', cursor: 'pointer', userSelect: 'none',
-      transition: 'background 0.15s',
-      borderRadius: expanded ? '10px 10px 0 0' : 10,
-      background: expanded ? 'rgba(108,99,255,0.06)' : 'transparent',
-    }}
-    onMouseOver={e => { if (!expanded) e.currentTarget.style.background = 'rgba(108,99,255,0.04)'; }}
-    onMouseOut={e => { if (!expanded) e.currentTarget.style.background = 'transparent'; }}
+    className={`${styles.sectionHeader} ${expanded ? styles.sectionHeaderExpanded : ''}`}
+    role="button"
+    tabIndex={0}
+    aria-expanded={expanded}
+    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(section); } }}
   >
-    <span style={{ fontSize: 16 }}>{icon}</span>
-    <span style={{
-      flex: 1, fontSize: 14, fontWeight: 600,
-      color: expanded ? 'var(--accent)' : 'var(--text)',
-      transition: 'color 0.2s',
-    }}>
+    <span className={styles.sectionHeaderIcon}>{icon}</span>
+    <span className={`${styles.sectionHeaderTitle} ${expanded ? styles.sectionHeaderTitleActive : ''}`}>
       {title}
     </span>
-    <span style={{
-      fontSize: 12, color: 'var(--text-secondary)',
-      transition: 'transform 0.25s ease',
-      transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
-      display: 'inline-block',
-    }}>
+    <span className={`${styles.sectionHeaderChevron} ${expanded ? styles.sectionHeaderChevronOpen : ''}`}>
       ▼
     </span>
   </div>
 );
 
 const SectionBody = ({ expanded, children }) => (
-  <div style={{
-    maxHeight: expanded ? 600 : 0, overflow: 'hidden',
-    transition: 'max-height 0.35s ease, opacity 0.25s ease, padding 0.25s ease',
-    opacity: expanded ? 1 : 0,
-  }}>
-    <div style={{ padding: expanded ? '4px 20px 18px' : '0 20px' }}>
+  <div className={`${styles.sectionBody} ${expanded ? styles.sectionBodyOpen : ''}`}>
+    <div className={styles.sectionBodyInner}>
       {children}
     </div>
   </div>
 );
 
-const SectionDivider = () => (
-  <div style={{ height: 1, background: 'var(--border)', margin: '0 20px', opacity: 0.4 }} />
-);
+const SectionDivider = () => <div className={styles.sectionDivider} />;
+
+// ========== TIME FORMATTER ==========
+function fmtTime(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
 
 export default function Generator() {
   const [prompt, setPrompt] = useState('');
@@ -182,7 +167,14 @@ export default function Generator() {
   const [debugHtml, setDebugHtml] = useState('');
   const [showDetails, setShowDetails] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
   const previewRef = useRef(null);
+  const [previewExpanded, setPreviewExpanded] = useState(false);
+
+  // Video custom controls
+  const [videoPlaying, setVideoPlaying] = useState(false);
+  const [videoCurrentTime, setVideoCurrentTime] = useState(0);
+  const [videoDuration, setVideoDuration] = useState(0);
 
   const [expandedSections, setExpandedSections] = useState({
     content: true, technical: false, audio: false, advanced: false,
@@ -196,7 +188,6 @@ export default function Generator() {
 
   // When polling detects a terminal or composition-ready status
   const handlePollReady = (data) => {
-    // Update history status
     if (data.status === 'composition_ready' || data.status === 'ready' || data.status === 'failed') {
       const list = loadHistory();
       const idx = list.findIndex(item => item.id === videoId);
@@ -222,9 +213,10 @@ export default function Generator() {
     handlePollReady
   );
 
-  // Load debug info when viewing a ready video
+  // Fetch debug HTML when preview is ready
   useEffect(() => {
-    if (!videoId || mode !== 'preview') return;
+    if (!videoId || (mode !== 'preview' && mode !== 'preview_composition')) return;
+    if (!debugOpen && !isDebug) return;
     const fetchDebug = async () => {
       try {
         const res = await fetch(`${API}/api/video/${videoId}/preview`);
@@ -235,13 +227,16 @@ export default function Generator() {
       } catch {}
     };
     fetchDebug();
-  }, [videoId, mode, isDebug]);
+  }, [videoId, mode, debugOpen, isDebug]);
 
   // Load a video's full status and restore form fields when clicking history
   const loadHistoryVideo = async (v) => {
-    if (v.status !== 'ready' && v.status !== 'failed' && v.status !== 'composition_ready') return;
     setVideoId(v.id);
-    setMode(v.status === 'composition_ready' ? 'preview_composition' : 'preview');
+    if (v.status === 'generating') {
+      setMode('generating');
+    } else {
+      setMode(v.status === 'composition_ready' ? 'preview_composition' : 'preview');
+    }
     setPrompt(v.prompt || '');
     setDuration(v.duration || 10);
     setWidth(v.width || 1280);
@@ -254,6 +249,7 @@ export default function Generator() {
     setUrl(v.sourceUrl || '');
     setHistoryStatus(null);
     setError('');
+    setHistoryExpanded(false);
     try {
       const res = await fetch(`${API}/api/video/${v.id}/status`);
       const data = await res.json();
@@ -311,7 +307,6 @@ export default function Generator() {
       const res = await fetch(`${API}/api/video/${videoId}/render`, { method: 'POST' });
       const data = await res.json();
       if (data.error) { setError(data.error); setMode('preview_composition'); return; }
-      // Polling will pick up 'rendering' → 'ready' transition via usePollStatus
     } catch (err) {
       setError(err.message);
       setMode('preview_composition');
@@ -320,7 +315,6 @@ export default function Generator() {
 
   const handleDownload = () => {
     if (!videoId) return;
-    // Trigger download
     const a = document.createElement('a');
     a.href = `${API}/api/video/${videoId}/download`;
     a.download = `www2video-${videoId.slice(0, 8)}.mp4`;
@@ -342,6 +336,49 @@ export default function Generator() {
     setUseWebsite(LUMI_DEFAULTS.useWebsite);
     setUrl(LUMI_DEFAULTS.sourceUrl);
   };
+
+  // ========== VIDEO CUSTOM CONTROLS ==========
+  const handleVideoPlayPause = useCallback(() => {
+    const video = previewRef.current;
+    if (!video) return;
+    if (video.paused) {
+      video.play();
+      setVideoPlaying(true);
+    } else {
+      video.pause();
+      setVideoPlaying(false);
+    }
+  }, []);
+
+  const handleVideoRestart = useCallback(() => {
+    const video = previewRef.current;
+    if (!video) return;
+    video.currentTime = 0;
+    setVideoCurrentTime(0);
+    video.play();
+    setVideoPlaying(true);
+  }, []);
+
+  const handleVideoTimeUpdate = useCallback(() => {
+    const video = previewRef.current;
+    if (!video) return;
+    setVideoCurrentTime(video.currentTime);
+  }, []);
+
+  const handleVideoLoadedMetadata = useCallback(() => {
+    const video = previewRef.current;
+    if (!video) return;
+    setVideoDuration(video.duration);
+  }, []);
+
+  // Sync video state when preview changes
+  useEffect(() => {
+    const video = previewRef.current;
+    if (!video) return;
+    setVideoPlaying(!video.paused);
+    setVideoCurrentTime(video.currentTime || 0);
+    setVideoDuration(video.duration || 0);
+  }, [mode, videoId]);
 
   const isGenerating = mode === 'generating' || mode === 'rendering';
 
@@ -366,99 +403,113 @@ export default function Generator() {
     'ready': 6, 'failed': 6,
   };
 
-  const inputStyle = {
-    width: '100%', background: '#111', border: '1px solid var(--border)',
-    borderRadius: 8, color: 'var(--text)', padding: '10px 14px',
-    fontSize: 14, fontFamily: 'inherit',
-    transition: 'border-color 0.2s, box-shadow 0.2s',
-  };
-  const selectStyle = {
-    ...inputStyle, cursor: 'pointer', appearance: 'none',
-    backgroundImage: `url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%23888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`,
-    backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', paddingRight: 36,
-  };
-  const labelStyle = {
-    display: 'block', fontSize: 12, fontWeight: 600,
-    color: 'var(--text-secondary)', marginBottom: 6,
-    textTransform: 'uppercase', letterSpacing: '0.5px',
-  };
-  const checkboxStyle = {
-    width: 18, height: 18, accentColor: 'var(--accent)', cursor: 'pointer', flexShrink: 0,
+  const historyStatusIcon = (s) => {
+    if (s === 'ready') return '✅';
+    if (s === 'composition_ready') return '👁️';
+    if (s === 'failed') return '❌';
+    return '⏳';
   };
 
-  // Shared buttons
-  const primaryBtnStyle = (disabled) => ({
-    width: '100%', padding: '14px 24px',
-    background: 'linear-gradient(135deg, var(--accent), #a78bfa)',
-    color: '#fff', border: 'none', borderRadius: 10,
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    fontSize: 16, fontWeight: 700,
-    opacity: disabled ? 0.5 : 1,
-    transition: 'filter 0.15s, transform 0.1s',
-  });
+  const canInteract = (s) => s === 'ready' || s === 'failed' || s === 'composition_ready';
 
-  const secondaryBtnStyle = {
-    flex: 1, padding: '12px 20px',
-    background: 'transparent', border: '1px solid var(--border)',
-    borderRadius: 10, cursor: 'pointer', fontSize: 14, fontWeight: 600,
-    color: 'var(--text-secondary)',
-    transition: 'all 0.15s',
-  };
+  const showBottomBar = mode === 'preview' || mode === 'preview_composition';
 
   return (
-    <div className="app">
-      <header style={{
-        display: 'flex', alignItems: 'center', gap: 12,
-        padding: '20px 0 18px', borderBottom: '1px solid var(--border)', marginBottom: 28,
-      }}>
-        <img src="https://cognitum.ro/assets/logo-inv.png" style={{ height: 32, opacity: 0.85 }} alt="Cognitum" />
-        <div style={{ flex: 1 }}>
-          <h1 style={{
-            margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: '-0.4px',
-            background: 'linear-gradient(135deg, var(--accent), #a78bfa)',
-            WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-          }}>
-            www2video
-          </h1>
-          <span style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'block', marginTop: 1 }}>
-            AI video generator
-          </span>
+    <div className={styles.app}>
+      {/* ===== HEADER ===== */}
+      <header className={styles.header}>
+        <img
+          src="/assets/logo-inv.png"
+          className={styles.headerLogo}
+          alt="Cognitum"
+        />
+        <div className={styles.headerContent}>
+          <h1 className={styles.headerTitle}>www2video</h1>
+          <span className={styles.headerSubtitle}>AI video generator</span>
         </div>
-        {isDebug && (
-          <span style={{
-            fontSize: 11, fontWeight: 700, padding: '3px 12px',
-            background: 'linear-gradient(135deg, var(--accent), #a78bfa)',
-            color: '#fff', borderRadius: 6, letterSpacing: '0.5px',
-          }}>DEBUG</span>
-        )}
+        <div className={styles.headerActions}>
+          <button
+            onClick={() => setDebugOpen(!debugOpen)}
+            className={`${styles.headerBtn} ${debugOpen ? styles.headerBtnActive : ''}`}
+            title={debugOpen ? 'Ascunde debug' : 'Arată debug'}
+            aria-label={debugOpen ? 'Ascunde panoul de debug' : 'Arată panoul de debug'}
+          >
+            🔍 Debug
+          </button>
+          {isDebug && <span className={styles.debugBadge}>DEBUG</span>}
+        </div>
       </header>
 
-      <main style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      {/* ===== MAIN CONTENT ===== */}
+      <main className={styles.main}>
+        {/* Debug quick-load (when ?debug=true) */}
         {isDebug && (
-          <div style={{ background: '#1a1a2e', border: '1px solid var(--accent)', borderRadius: 12, padding: 16, opacity: 0.9 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-              <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>⚙️ Debug Tools</span>
-              <button onClick={loadLumiDefaults} style={{
-                padding: '6px 14px', background: 'var(--accent)', color: '#fff',
-                border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600,
-              }}
-                onMouseOver={e => e.currentTarget.style.filter = 'brightness(1.15)'}
-                onMouseOut={e => e.currentTarget.style.filter = 'none'}
-              >🚀 Load lumi.bot defaults</button>
+          <div className={styles.debugPanel}>
+            <div className={styles.debugHeader}>
+              <span className={styles.debugTitle}>⚙️ Debug Tools</span>
+              <button onClick={loadLumiDefaults} className={styles.debugBtn}>
+                🚀 Load lumi.bot defaults
+              </button>
             </div>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+            <div className={styles.debugText}>
               Use acest buton pentru a pre-popula formularul cu valori potrivite pentru un product launch video LumiBot.
             </div>
           </div>
         )}
 
-        <div className="generator-layout" style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
-          {/* LEFT PANEL */}
-          <div className="form-panel" style={{
-            flex: '1 1 440px', minWidth: 320,
-            background: 'var(--surface)', border: '1px solid var(--border)',
-            borderRadius: 14, overflow: 'hidden',
-          }}>
+        {/* Debug panel (UI toggle) */}
+        {debugOpen && (
+          <div className={styles.debugInfoPanel}>
+            <div className={styles.debugInfoHeader}>
+              <span className={styles.debugInfoTitle}>🔍 Debug Info</span>
+              <button onClick={() => setDebugOpen(false)} className={styles.debugClose} aria-label="Închide debug">
+                ✕
+              </button>
+            </div>
+            <div className={styles.debugInfoBody}>
+              {videoId ? (
+                <>
+                  <div className={styles.debugInfoSection}>
+                    <div className={styles.debugInfoLabel}>Video ID</div>
+                    <div className={styles.debugInfoValue}>{videoId}</div>
+                  </div>
+                  <div className={styles.debugInfoSection}>
+                    <div className={styles.debugInfoLabel}>Mode</div>
+                    <div className={styles.debugInfoValue}>{mode}</div>
+                  </div>
+                  {status && (
+                    <div className={styles.debugInfoSection}>
+                      <div className={styles.debugInfoLabel}>Status</div>
+                      <pre className={styles.debugInfoPre}>{JSON.stringify(status, null, 2)}</pre>
+                    </div>
+                  )}
+                  {debugHtml && (
+                    <div className={styles.debugInfoSection}>
+                      <div className={styles.debugInfoLabel}>HTML Compoziție</div>
+                      <button
+                        onClick={() => setShowDetails(prev => !prev)}
+                        className={styles.debugToggle}
+                      >
+                        {showDetails ? '▲ Ascunde' : '▼ Arată'} HTML ({Math.round(debugHtml.length / 1024)} KB)
+                      </button>
+                      {showDetails && (
+                        <pre className={styles.debugInfoCode}>{debugHtml}</pre>
+                      )}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className={styles.debugInfoEmpty}>
+                  Nicio generare activă. Pornește o generare pentru a vedea detaliile aici.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className={styles.layout}>
+          {/* ===== LEFT PANEL: FORM ===== */}
+          <div className={styles.formPanel}>
             <SectionHeader icon="📝" title="Conținut" section="content" expanded={expandedSections.content} onToggle={toggleSection} />
             <SectionBody expanded={expandedSections.content}>
               <textarea
@@ -466,16 +517,16 @@ export default function Generator() {
                 onChange={e => setPrompt(e.target.value)}
                 placeholder="e.g. Un clip de prezentare de 10 secunde pentru o cafea premium..."
                 rows={4}
-                style={{ ...inputStyle, resize: 'vertical', minHeight: 100, lineHeight: 1.5 }}
+                className={styles.textarea}
               />
             </SectionBody>
             <SectionDivider />
 
             <SectionHeader icon="⚙️" title="Setări tehnice" section="technical" expanded={expandedSections.technical} onToggle={toggleSection} />
             <SectionBody expanded={expandedSections.technical}>
-              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-                <div style={{ flex: '0 0 auto' }}>
-                  <label style={labelStyle}>Durată (secunde)</label>
+              <div className={styles.formRow}>
+                <div className={styles.formRowItem}>
+                  <label className={styles.label}>Durată (secunde)</label>
                   <input type="text" inputMode="numeric" value={duration}
                     onChange={e => {
                       const v = e.target.value;
@@ -491,14 +542,14 @@ export default function Generator() {
                       else if (n > 120) setDuration(120);
                       else setDuration(n);
                     }}
-                    style={{ ...inputStyle, width: 100, textAlign: 'center' }}
+                    className={`${styles.input} ${styles.inputCompact}`}
                   />
                 </div>
-                <div style={{ flex: 1, minWidth: 160 }}>
-                  <label style={labelStyle}>Rezoluție</label>
+                <div className={styles.formRowItemFlex}>
+                  <label className={styles.label}>Rezoluție</label>
                   <select value={`${width}x${height}`}
                     onChange={e => { const [w, h] = e.target.value.split('x').map(Number); setWidth(w); setHeight(h); }}
-                    style={selectStyle}
+                    className={styles.select}
                   >
                     <option value="1280x720">1280×720 (HD)</option>
                     <option value="1920x1080">1920×1080 (Full HD)</option>
@@ -514,18 +565,19 @@ export default function Generator() {
 
             <SectionHeader icon="🎵" title="Audio" section="audio" expanded={expandedSections.audio} onToggle={toggleSection} />
             <SectionBody expanded={expandedSections.audio}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <div className={styles.checkboxRow}>
                 <input type="checkbox" id="chk-audio" checked={useAudio}
-                  onChange={e => setUseAudio(e.target.checked)} style={checkboxStyle} />
-                <label htmlFor="chk-audio" style={{ fontSize: 13, cursor: 'pointer', userSelect: 'none' }}>🎵 Audio (narare)</label>
+                  onChange={e => setUseAudio(e.target.checked)} className={styles.checkbox} />
+                <label htmlFor="chk-audio" className={styles.checkboxLabel}>🎵 Audio (narare)</label>
               </div>
               {useAudio && (
                 <>
                   <textarea value={audioPrompt} onChange={e => setAudioPrompt(e.target.value)}
                     placeholder="Scrie textul pe care sa-l spuna naratorul sau lasă gol și va fi generat automat un text potrivit"
-                    rows={3} style={{ ...inputStyle, resize: 'vertical', minHeight: 60, lineHeight: 1.5, marginBottom: 12 }} />
-                  <label style={labelStyle}>Voce narator</label>
-                  <select value={voiceName} onChange={e => setVoiceName(e.target.value)} style={selectStyle}>
+                    rows={3} className={styles.textarea}
+                    style={{ marginTop: 12, marginBottom: 12, minHeight: 60 }} />
+                  <label className={styles.label}>Voce narator</label>
+                  <select value={voiceName} onChange={e => setVoiceName(e.target.value)} className={styles.select}>
                     {GEMINI_VOICES.map(v => (
                       <option key={v.name} value={v.name}>{v.label}</option>
                     ))}
@@ -537,100 +589,101 @@ export default function Generator() {
 
             <SectionHeader icon="🌐" title="Avansat" section="advanced" expanded={expandedSections.advanced} onToggle={toggleSection} />
             <SectionBody expanded={expandedSections.advanced}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: useWebsite ? 10 : 0 }}>
-                <input type="checkbox" id="chk-website" checked={useWebsite}
-                  onChange={e => setUseWebsite(e.target.checked)} style={checkboxStyle} />
-                <label htmlFor="chk-website" style={{ fontSize: 13, cursor: 'pointer', userSelect: 'none' }}>🌐 Extrage identitate vizuală de pe site</label>
-              </div>
-              {useWebsite && (
-                <div>
-                  <label style={labelStyle}>URL site</label>
-                  <input type="text" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://example.com" style={inputStyle} />
+              <div className={styles.formGroup}>
+                <div className={styles.checkboxRow}>
+                  <input type="checkbox" id="chk-website" checked={useWebsite}
+                    onChange={e => setUseWebsite(e.target.checked)} className={styles.checkbox} />
+                  <label htmlFor="chk-website" className={styles.checkboxLabel}>🌐 Extrage identitate vizuală de pe site</label>
                 </div>
-              )}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14 }}>
+                {useWebsite && (
+                  <div style={{ marginTop: 10 }}>
+                    <label className={styles.label}>URL site</label>
+                    <input type="text" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://example.com" className={styles.input} />
+                  </div>
+                )}
+              </div>
+              <div className={styles.checkboxRow} style={{ marginTop: 14 }}>
                 <input type="checkbox" id="chk-subs" checked={useSubtitles}
-                  onChange={e => setUseSubtitles(e.target.checked)} style={checkboxStyle} />
-                <label htmlFor="chk-subs" style={{ fontSize: 13, cursor: 'pointer', userSelect: 'none' }}>💬 Subtitrări</label>
+                  onChange={e => setUseSubtitles(e.target.checked)} className={styles.checkbox} />
+                <label htmlFor="chk-subs" className={styles.checkboxLabel}>💬 Subtitrări</label>
               </div>
             </SectionBody>
 
-            <div style={{ padding: '16px 20px' }}>
-              <button onClick={handleGenerate} disabled={isGenerating || !prompt.trim()}
-                style={primaryBtnStyle(isGenerating || !prompt.trim())}
-                onMouseOver={e => { if (!isGenerating && prompt.trim()) { e.currentTarget.style.filter = 'brightness(1.1)'; e.currentTarget.style.transform = 'translateY(-1px)'; } }}
-                onMouseOut={e => { e.currentTarget.style.filter = 'none'; e.currentTarget.style.transform = 'none'; }}
-              >
-                {isGenerating ? '⏳ Se generează...' : '🚀 Generare video'}
-              </button>
-            </div>
+            {/* Generate button in form (visible when idle or generating) */}
+            {!showBottomBar && (
+              <div className={styles.formActions}>
+                <button onClick={handleGenerate} disabled={isGenerating || !prompt.trim()}
+                  className={styles.btnPrimary}
+                >
+                  {isGenerating ? '⏳ Se generează...' : '🚀 Generare video'}
+                </button>
+              </div>
+            )}
           </div>
 
-          {/* RIGHT PANEL */}
-          <div className="output-panel" style={{ flex: '1 1 480px', minWidth: 320, position: 'sticky', top: 24 }}>
-            {/* History */}
+          {/* ===== RIGHT PANEL: OUTPUT ===== */}
+          <div className={styles.outputPanel}>
+            {/* History — collapsible panel */}
             {history.length > 0 && (
-              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, overflow: 'hidden', marginBottom: 16 }}>
-                <div style={{ padding: '12px 20px', fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)' }}>
-                  📋 Istoric
+              <div className={styles.historyPanel}>
+                <div
+                  className={styles.historyToggle}
+                  onClick={() => setHistoryExpanded(!historyExpanded)}
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={historyExpanded}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setHistoryExpanded(!historyExpanded); } }}
+                >
+                  <span className={styles.historyToggleIcon}>🕐</span>
+                  <span className={styles.historyToggleTitle}>Istoric</span>
+                  <span className={styles.historyToggleCount}>{history.length}</span>
+                  <span className={`${styles.historyToggleChevron} ${historyExpanded ? styles.historyToggleChevronOpen : ''}`}>
+                    ▼
+                  </span>
                 </div>
-                <div style={{ maxHeight: 200, overflowY: 'auto' }}>
-                  {history.map(v => (
-                    <div key={v.id} onClick={() => loadHistoryVideo(v)}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: 10, padding: '10px 20px',
-                        cursor: (v.status === 'ready' || v.status === 'failed' || v.status === 'composition_ready') ? 'pointer' : 'default',
-                        borderBottom: '1px solid var(--border)', transition: 'background 0.1s',
-                        opacity: (v.status === 'ready' || v.status === 'composition_ready') ? 1 : 0.65,
-                      }}
-                      onMouseOver={e => { if (v.status === 'ready' || v.status === 'failed' || v.status === 'composition_ready') e.currentTarget.style.background = 'rgba(108,99,255,0.08)'; }}
-                      onMouseOut={e => { e.currentTarget.style.background = 'transparent'; }}
-                    >
-                      <span style={{
-                        fontSize: 11, fontWeight: 700, textTransform: 'uppercase', minWidth: 38,
-                        color: v.status === 'ready' ? '#4ade80' : v.status === 'composition_ready' ? '#60a5fa' : v.status === 'failed' ? '#f87171' : '#fbbf24',
-                      }}>
-                        {v.status === 'ready' ? '✅' : v.status === 'composition_ready' ? '👁️' : v.status === 'failed' ? '❌' : '⏳'}
-                      </span>
-                      <span style={{ flex: 1, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>
-                        {v.prompt}
-                      </span>
-                      <button onClick={(e) => handleDeleteHistory(e, v.id)}
-                        style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 14, padding: '2px 6px', borderRadius: 4, opacity: 0.5 }}
-                        onMouseOver={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = '#f87171'; }}
-                        onMouseOut={e => { e.currentTarget.style.opacity = '0.5'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
-                        title="Șterge">✕</button>
-                    </div>
-                  ))}
-                </div>
+                {historyExpanded && (
+                  <div className={styles.historyList}>
+                    {history.map(v => (
+                      <div key={v.id}
+                        onClick={() => loadHistoryVideo(v)}
+                        className={canInteract(v.status) ? styles.historyItemClickable : styles.historyItem}
+                      >
+                        <span className={styles.historyStatus}>
+                          {historyStatusIcon(v.status)}
+                        </span>
+                        <span className={styles.historyPrompt}>
+                          {v.prompt.length > 48 ? v.prompt.slice(0, 48) + '…' : v.prompt}
+                        </span>
+                        <button onClick={(e) => handleDeleteHistory(e, v.id)}
+                          className={styles.historyDelete}
+                          title="Șterge"
+                          aria-label="Șterge din istoric"
+                        >✕</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
             {/* Generating state (composition phase) */}
             {mode === 'generating' && (
-              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '24px 20px', textAlign: 'center' }}>
-                <div style={{
-                  width: 40, height: 40, border: '3px solid var(--border)', borderTopColor: 'var(--accent)',
-                  borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 16px',
-                }} />
-                <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>
-                  {status?.step === 'fetching_website' ? '🌐 Se extrage identitatea vizuală...'
-                    : status?.step === 'generating_composition' ? '🤖 Se generează conținutul...'
-                    : status?.step === 'generating_audio' ? '🎵 Se generează nararea audio...'
-                    : '⏳ Se pregătește...'}
+              <div className={styles.statusPanel}>
+                <div className={styles.spinner} />
+                <div className={styles.statusTitle}>
+                  {status?.progress?.step === 'fetching_website' ? '🌐 Se extrage identitatea vizuală...'
+                    : status?.progress?.step === 'generating_composition' ? '🤖 Se generează conținutul...'
+                    : status?.progress?.step === 'generating_audio' ? '🎵 Se generează nararea audio...'
+                    : status?.progress?.message || '⏳ Se pregătește...'}
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, marginTop: 12 }}>
+                <div className={styles.progressSteps}>
                   {timelineSteps.slice(0, 4).map((s, i) => {
-                    const currentStep = status?.step ? (stepGroups[status.step] ?? -1) : -1;
+                    const currentStep = status?.progress?.step ? (stepGroups[status.progress.step] ?? -1) : -1;
                     const done = currentStep > i;
                     const active = currentStep === i;
                     return (
-                      <div key={s.step} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <div style={{
-                          width: done || active ? 20 : 12, height: 4, borderRadius: 2,
-                          background: done ? 'linear-gradient(90deg, var(--accent), #a78bfa)' : active ? 'var(--accent)' : 'var(--border)',
-                          transition: 'all 0.3s',
-                        }} />
+                      <div key={s.step} className={styles.progressStep}>
+                        <div className={`${styles.progressDot} ${done ? styles.progressDotDone : active ? styles.progressDotActive : ''}`} />
                       </div>
                     );
                   })}
@@ -641,73 +694,64 @@ export default function Generator() {
             {/* Composition ready — HTML preview */}
             {mode === 'preview_composition' && videoId && (
               <div>
-                <div style={{
-                  background: 'var(--surface)', border: '1px solid var(--border)',
-                  borderRadius: 14, overflow: 'hidden',
-                }}>
-                  {historyStatus && (
-                    <div style={{ padding: '12px 20px 0', fontSize: 12, color: 'var(--text-secondary)' }}>
-                      {historyStatus.tts_text && <div style={{ marginBottom: 8 }}><strong>Narare:</strong> {historyStatus.tts_text}</div>}
-                      {historyStatus.tts_voice && <div style={{ marginBottom: 8 }}><strong>Voce:</strong> {historyStatus.tts_voice}</div>}
+                <div className={styles.previewPanel}>
+                  <div className={styles.previewHeader}>
+                    <span className={styles.previewTitle}>👁️ Previzualizare compoziție</span>
+                    <span className={styles.previewResolution}>{width}×{height}</span>
+                    <div className={styles.previewSpacer} />
+                    <button
+                      onClick={() => setPreviewExpanded(!previewExpanded)}
+                      className={styles.btnIcon}
+                      aria-label={previewExpanded ? 'Restrânge previzualizarea' : 'Extinde previzualizarea'}
+                    >
+                      {previewExpanded ? '🔽 Restrânge' : '🔼 Extinde'}
+                    </button>
+                    <button
+                      onClick={() => window.open(`${API}/api/video/${videoId}/preview`, '_blank')}
+                      className={styles.btnIcon}
+                      title="Deschide într-un tab nou"
+                      aria-label="Deschide previzualizarea într-un tab nou"
+                    >
+                      ↗️
+                    </button>
+                  </div>
+
+                  {historyStatus && (historyStatus.tts_text || historyStatus.tts_voice) && (
+                    <div className={styles.narrationInfo}>
+                      {historyStatus.tts_text && (
+                        <div className={styles.narrationLine}>
+                          <span className={styles.narrationLabel}>🎙️ Narare:</span> {historyStatus.tts_text}
+                        </div>
+                      )}
+                      {historyStatus.tts_voice && (
+                        <div className={styles.narrationLine}>
+                          <span className={styles.narrationLabel}>🔊 Voce:</span> {historyStatus.tts_voice}
+                        </div>
+                      )}
                     </div>
                   )}
-                  <div style={{ padding: 20 }}>
+
+                  <div className={previewExpanded ? styles.previewBodyNoPadding : styles.previewBody}>
                     <iframe
+                      key={`${videoId}-${previewExpanded}`}
                       src={`${API}/api/video/${videoId}/preview`}
-                      style={{
-                        width: '100%', borderRadius: 10, background: '#000',
-                        aspectRatio: `${width}/${height}`, maxHeight: 400, border: 0,
-                      }}
+                      className={`${styles.iframe} ${previewExpanded ? styles.iframeExpanded : ''}`}
+                      style={{ aspectRatio: previewExpanded ? undefined : `${width}/${height}` }}
                       title="Composition preview"
                       sandbox="allow-scripts allow-same-origin"
                     />
                   </div>
-                  <div style={{ display: 'flex', gap: 10, padding: '0 20px 20px' }}>
-                    <button onClick={handleRenderMP4}
-                      style={{
-                        flex: 1, padding: '12px 20px',
-                        background: 'linear-gradient(135deg, #22c55e, #16a34a)',
-                        color: '#fff', border: 'none', borderRadius: 10,
-                        cursor: 'pointer', fontSize: 14, fontWeight: 600,
-                        transition: 'filter 0.15s',
-                      }}
-                      onMouseOver={e => e.currentTarget.style.filter = 'brightness(1.15)'}
-                      onMouseOut={e => e.currentTarget.style.filter = 'none'}
-                    >
-                      ⬇️ Download MP4
-                    </button>
-                    <button onClick={handleRegenerate}
-                      style={secondaryBtnStyle}
-                    >🔄 Regenerare</button>
-                  </div>
-                  {error && (
-                    <div style={{ padding: '0 20px 16px', fontSize: 13, color: '#f87171' }}>
-                      ❌ {error}
-                    </div>
-                  )}
                 </div>
               </div>
             )}
 
             {/* Rendering MP4 state */}
             {mode === 'rendering' && (
-              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '24px 20px', textAlign: 'center' }}>
-                <div style={{
-                  width: 40, height: 40, border: '3px solid var(--border)', borderTopColor: '#22c55e',
-                  borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 16px',
-                }} />
-                <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>
-                  🎬 Se generează videoclipul MP4...
-                </div>
-                <div style={{
-                  height: 4, background: 'var(--border)', borderRadius: 2,
-                  marginTop: 12, overflow: 'hidden',
-                }}>
-                  <div style={{
-                    height: '100%', width: '60%', borderRadius: 2,
-                    background: 'linear-gradient(90deg, #22c55e, #16a34a)',
-                    animation: 'shimmer 2s infinite',
-                  }} />
+              <div className={styles.statusPanel}>
+                <div className={`${styles.spinner} ${styles.spinnerSuccess}`} />
+                <div className={styles.statusTitle}>🎬 Se generează videoclipul MP4...</div>
+                <div className={styles.progressBar}>
+                  <div className={styles.progressBarFill} />
                 </div>
                 <style>{`@keyframes shimmer { 0% { width: 20%; } 50% { width: 70%; } 100% { width: 20%; } }`}</style>
               </div>
@@ -716,85 +760,107 @@ export default function Generator() {
             {/* Preview — MP4 ready */}
             {(mode === 'preview') && videoId && (
               <div>
-                <div style={{
-                  background: 'var(--surface)', border: '1px solid var(--border)',
-                  borderRadius: 14, overflow: 'hidden',
-                }}>
+                <div className={styles.previewPanel}>
                   {historyStatus && (
-                    <div style={{ padding: '12px 20px 0', fontSize: 12, color: 'var(--text-secondary)' }}>
-                      {historyStatus.tts_text && <div style={{ marginBottom: 8 }}><strong>Narare:</strong> {historyStatus.tts_text}</div>}
-                      {historyStatus.tts_voice && <div style={{ marginBottom: 8 }}><strong>Voce:</strong> {historyStatus.tts_voice}</div>}
+                    <div className={styles.narrationInfo} style={{ borderBottom: 'none' }}>
+                      {historyStatus.tts_text && (
+                        <div className={styles.narrationLine}>
+                          <span className={styles.narrationLabel}>Narare:</span> {historyStatus.tts_text}
+                        </div>
+                      )}
+                      {historyStatus.tts_voice && (
+                        <div className={styles.narrationLine}>
+                          <span className={styles.narrationLabel}>Voce:</span> {historyStatus.tts_voice}
+                        </div>
+                      )}
                     </div>
                   )}
-                  <div style={{ padding: 20 }}>
-                    <video ref={previewRef} controls autoPlay
-                      style={{ width: '100%', borderRadius: 10, background: '#000', maxHeight: 400 }}>
+                  <div className={styles.previewBodyNoPadding}>
+                    <video
+                      ref={previewRef}
+                      className={styles.video}
+                      style={{ aspectRatio: `${width}/${height}` }}
+                      onTimeUpdate={handleVideoTimeUpdate}
+                      onLoadedMetadata={handleVideoLoadedMetadata}
+                      onPlay={() => setVideoPlaying(true)}
+                      onPause={() => setVideoPlaying(false)}
+                    >
                       <source src={`${API}/api/video/${videoId}/download`} type="video/mp4" />
                     </video>
-                  </div>
-                  <div style={{ display: 'flex', gap: 10, padding: '0 20px 20px' }}>
-                    <button onClick={handleDownload}
-                      style={{
-                        flex: 1, padding: '12px 20px',
-                        background: 'linear-gradient(135deg, var(--accent), #a78bfa)',
-                        color: '#fff', border: 'none', borderRadius: 10,
-                        cursor: 'pointer', fontSize: 14, fontWeight: 600,
-                        transition: 'filter 0.15s',
-                      }}
-                      onMouseOver={e => e.currentTarget.style.filter = 'brightness(1.15)'}
-                      onMouseOut={e => e.currentTarget.style.filter = 'none'}
-                    >⬇️ Download MP4</button>
-                    <button onClick={() => {
-                      navigator.clipboard.writeText(`${window.location.origin}/api/video/${videoId}/download`);
-                      setCopiedUrl(true);
-                      setTimeout(() => setCopiedUrl(false), 2000);
-                    }}
-                      style={{
-                        padding: '12px 20px', background: 'transparent',
-                        border: '1px solid var(--border)', borderRadius: 10,
-                        cursor: 'pointer', fontSize: 14, fontWeight: 600,
-                        color: copiedUrl ? '#4ade80' : 'var(--text-secondary)',
-                        transition: 'all 0.15s',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >{copiedUrl ? '✅ Copiat!' : '📋 Copy URL'}</button>
+
+                    {/* Custom video controls */}
+                    <div className={styles.videoControls}>
+                      <button
+                        onClick={handleVideoPlayPause}
+                        className={styles.videoCtrlBtn}
+                        aria-label={videoPlaying ? 'Pauză' : 'Redare'}
+                        title={videoPlaying ? 'Pauză' : 'Redare'}
+                      >
+                        {videoPlaying ? '⏸️' : '▶️'}
+                      </button>
+                      <button
+                        onClick={handleVideoRestart}
+                        className={styles.videoCtrlBtn}
+                        aria-label="Reîncepe"
+                        title="Reîncepe"
+                      >
+                        🔄
+                      </button>
+                      <span className={styles.videoTime}>
+                        {fmtTime(videoCurrentTime)} / {fmtTime(videoDuration || duration)}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
-                {error && (
-                  <div style={{
-                    marginTop: 12, padding: '12px 16px',
-                    background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)',
-                    borderRadius: 10, color: '#f87171', fontSize: 13,
-                  }}>
-                    ❌ {error}
-                  </div>
-                )}
-
-                {(isDebug || debugOpen) && debugHtml && (
-                  <div style={{ marginTop: 12 }}>
-                    <button onClick={() => setShowDetails(prev => !prev)}
-                      style={{
-                        width: '100%', padding: '8px 16px', background: 'transparent',
-                        border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer',
-                        fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600, textAlign: 'left',
-                      }}
-                    >🔍 {showDetails ? 'Ascunde' : 'Arată'} compoziția generată</button>
-                    {showDetails && (
-                      <div style={{
-                        marginTop: 8, padding: 16, background: '#0d0d0d',
-                        border: '1px solid var(--border)', borderRadius: 10,
-                        maxHeight: 400, overflow: 'auto', fontSize: 12, color: '#aaa',
-                        fontFamily: 'monospace', whiteSpace: 'pre-wrap',
-                      }}>{debugHtml}</div>
-                    )}
-                  </div>
-                )}
+                {error && <div className={styles.errorBox}>❌ {error}</div>}
               </div>
             )}
           </div>
         </div>
       </main>
+
+      {/* ===== FIXED BOTTOM ACTION BAR ===== */}
+      {showBottomBar && (
+        <div className={styles.bottomBar}>
+          <div className={styles.bottomBarInner}>
+            <button onClick={handleGenerate} disabled={isGenerating || !prompt.trim()}
+              className={styles.btnPrimary}
+              style={{ flex: 1 }}
+            >
+              {isGenerating ? '⏳ Se generează...' : '🚀 Generare nouă'}
+            </button>
+            {mode === 'preview' && (
+              <button onClick={handleDownload} className={styles.btnSuccess} style={{ flex: 1 }}>
+                ⬇️ Download MP4
+              </button>
+            )}
+            {mode === 'preview' && (
+              <button onClick={() => {
+                navigator.clipboard.writeText(`${window.location.origin}/api/video/${videoId}/download`);
+                setCopiedUrl(true);
+                setTimeout(() => setCopiedUrl(false), 2000);
+              }}
+                className={styles.btnSecondary}
+                style={{ flex: '0 0 auto' }}
+              >{copiedUrl ? '✅ Copiat!' : '📋 Copy URL'}</button>
+            )}
+            {mode === 'preview_composition' && (
+              <>
+                <button onClick={handleRenderMP4} className={styles.btnSuccess} style={{ flex: 1 }}>
+                  ⬇️ Download MP4
+                </button>
+                <button onClick={handleRegenerate} className={styles.btnSecondary} style={{ flex: 1 }}>
+                  🔄 Regenerare
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Spacer for bottom bar */}
+      {showBottomBar && <div className={styles.bottomBarSpacer} />}
     </div>
   );
 }

@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { createEngine } from '../services/hyperframes.js';
 import { composeFromPrompt, extractDesignTokens, generateTTS, generateSubtitles } from '../services/composer.js';
 import { fetchRenderedDOM, extractBrandTokens } from '../services/website-scraper.js';
+import { getCachedTTS, cacheTTS, initTTSCacheTable } from '../services/tts-cache.js';
+import { rateLimitGenerate } from '../middleware/rateLimit.js';
 import path from 'path';
 import fs from 'fs/promises';
 import { existsSync, openSync, readSync, closeSync } from 'fs';
@@ -44,10 +46,12 @@ async function getDb() {
     updated_at TEXT DEFAULT (datetime('now'))
   )`);
   // Ensure progress column exists for older DBs
-  try { db.run('ALTER TABLE videos ADD COLUMN progress TEXT DEFAULT \'{}\''); } catch {}
-  try { db.run('ALTER TABLE videos ADD COLUMN debug_info TEXT DEFAULT \'{}\''); } catch {}
-  try { db.run('ALTER TABLE videos ADD COLUMN tts_text TEXT DEFAULT \'\''); } catch {}
-  try { db.run('ALTER TABLE videos ADD COLUMN tts_voice TEXT DEFAULT \'Kore\''); } catch {}
+  try { db.run("ALTER TABLE videos ADD COLUMN progress TEXT DEFAULT '{}'"); } catch {}
+  try { db.run("ALTER TABLE videos ADD COLUMN debug_info TEXT DEFAULT '{}'"); } catch {}
+  try { db.run("ALTER TABLE videos ADD COLUMN tts_text TEXT DEFAULT ''"); } catch {}
+  try { db.run("ALTER TABLE videos ADD COLUMN tts_voice TEXT DEFAULT 'Kore'"); } catch {}
+  try { db.run("ALTER TABLE videos ADD COLUMN logo_path TEXT DEFAULT ''"); } catch {}
+  initTTSCacheTable(db);
   return db;
 }
 
@@ -122,7 +126,7 @@ function getWavDuration(wavPath) {
 }
 
 // POST /api/video/generate
-router.post('/generate', async (req, res) => {
+router.post('/generate', rateLimitGenerate, async (req, res) => {
   try {
     const { prompt, options = {} } = req.body;
     if (!prompt || !prompt.trim()) {
@@ -445,6 +449,8 @@ async function generateInBackground(videoId, prompt, options) {
     let websiteName = null;
     let themeColor = null;
     let enrichedPrompt = prompt;
+    let fetchedFaviconUrl = null;
+    let fetchedGoogleFontsUrls = [];
 
     if (options.sourceUrl) {
       await updateProgress(videoId, 'fetching_website', '🌐 Se preia site-ul...', 1);
@@ -459,10 +465,25 @@ async function generateInBackground(videoId, prompt, options) {
       }
 
       await updateProgress(videoId, 'extracting_identity', '🎨 Se extrage identitatea vizuală...', 2);
-      const tokens = extractBrandTokens(renderedHTML);
+      const tokens = extractBrandTokens(renderedHTML, options.sourceUrl);
       themeColor = tokens.themeColor || (tokens.colors.length > 0 ? tokens.colors[0] : null);
       brandColors = tokens.colors;
       brandFonts = tokens.fonts;
+      fetchedFaviconUrl = tokens.faviconUrl;
+      fetchedGoogleFontsUrls = tokens.googleFontsUrls || [];
+
+      // Download site logo for later injection
+      let logoBuffer = null;
+      if (tokens.logoUrl) {
+        try {
+          const logoResp = await fetch(tokens.logoUrl, { signal: AbortSignal.timeout(10000) });
+          if (logoResp.ok) {
+            logoBuffer = Buffer.from(await logoResp.arrayBuffer());
+          }
+        } catch (e) {
+          console.warn('[generate] Could not download site logo:', e.message);
+        }
+      }
 
       if (tokens.title) {
         enrichedPrompt = `Create a promotional video for: ${tokens.title} (${options.sourceUrl})\n\n${enrichedPrompt}`;
@@ -484,6 +505,36 @@ async function generateInBackground(videoId, prompt, options) {
     const { engine, workDir } = await createEngine(PROJECTS_DIR);
     await updateProgress(videoId, 'initialized', '📁 Proiect creat', 8);
 
+    // Save site logo to disk
+    let brandLogoPath = null;
+    if (logoBuffer) {
+      try {
+        const assetsDir = path.join(workDir, 'assets');
+        await fs.mkdir(assetsDir, { recursive: true });
+        brandLogoPath = path.join(assetsDir, 'logo-site.png');
+        await fs.writeFile(brandLogoPath, logoBuffer);
+        console.log(`[generate] Site logo saved: ${brandLogoPath}`);
+      } catch (e) {
+        console.warn('[generate] Could not save site logo to disk:', e.message);
+      }
+    }
+
+    // Download favicon to workDir for injection into composition
+    let faviconPath = null;
+    if (fetchedFaviconUrl) {
+      try {
+        const faviconResp = await fetch(fetchedFaviconUrl, { signal: AbortSignal.timeout(8000) });
+        if (faviconResp.ok) {
+          const faviconBuffer = Buffer.from(await faviconResp.arrayBuffer());
+          faviconPath = path.join(workDir, 'favicon.ico');
+          await fs.writeFile(faviconPath, faviconBuffer);
+          console.log(`[generate] Favicon saved: ${faviconPath}`);
+        }
+      } catch (e) {
+        console.warn('[generate] Could not download favicon:', e.message);
+      }
+    }
+
     await updateProgress(videoId, 'generating_composition', '🤖 Se generează conținutul video...', 10);
     await engine.init('blank');
     await updateProgress(videoId, 'composition_ai', '🤖 Conținut generat cu AI', 15);
@@ -493,12 +544,36 @@ async function generateInBackground(videoId, prompt, options) {
     if (brandFonts) compositionOptions.brandFonts = brandFonts;
     if (websiteName) compositionOptions.websiteName = websiteName;
     if (themeColor) compositionOptions.themeColor = themeColor;
+    if (brandLogoPath) compositionOptions.brandLogoPath = brandLogoPath;
 
     const html = await composeFromPrompt(enrichedPrompt, compositionOptions);
     await updateDebug(videoId, { composition_html: html.substring(0, 5000) });
     await updateProgress(videoId, 'composition_done', '✅ Conținut generat', 30);
 
-    await engine.writeComposition(html);
+    // Inject Google Fonts links and favicon into <head> before writing
+    let injectedHtml = html;
+    const headInjections = [];
+
+    // Add Google Fonts <link> tags
+    if (fetchedGoogleFontsUrls.length > 0) {
+      for (const gfUrl of fetchedGoogleFontsUrls) {
+        headInjections.push(`  <link href="${gfUrl}" rel="stylesheet">`);
+      }
+    }
+
+    // Add favicon <link> if we downloaded it
+    if (faviconPath) {
+      headInjections.push('  <link rel="icon" href="favicon.ico">');
+    }
+
+    if (headInjections.length > 0) {
+      injectedHtml = injectedHtml.replace(
+        '</head>',
+        `${headInjections.join('\n')}\n</head>`
+      );
+    }
+
+    await engine.writeComposition(injectedHtml);
     await updateProgress(videoId, 'writing_composition', '💾 Se salvează...', 33);
 
     // Generate TTS audio if audioPrompt provided or auto-generate
@@ -670,7 +745,7 @@ async function generateInBackground(videoId, prompt, options) {
 
     // Save composition path
     const db = await getDb();
-    db.run('UPDATE videos SET composition_path = ? WHERE id = ?', [workDir, videoId]);
+    db.run('UPDATE videos SET composition_path = ?, logo_path = ? WHERE id = ?', [workDir, brandLogoPath, videoId]);
     await saveAndClose(db);
 
     await updateProgress(videoId, 'validating', '🔍 Se validează conținutul...', 40);
@@ -702,8 +777,8 @@ async function generateInBackground(videoId, prompt, options) {
 
     const readyProgress = JSON.stringify({ step: 'composition_ready', message: '✅ Conținut gata — verifică previzualizarea', pct: 45 });
     dbReady.run(
-      `UPDATE videos SET status = 'composition_ready', composition_path = ?, progress = ?, debug_info = ?, updated_at = datetime('now') WHERE id = ?`,
-      [workDir, readyProgress, JSON.stringify(debugMerged), videoId]
+      `UPDATE videos SET status = 'composition_ready', composition_path = ?, logo_path = ?, progress = ?, debug_info = ?, updated_at = datetime('now') WHERE id = ?`,
+      [workDir, brandLogoPath, readyProgress, JSON.stringify(debugMerged), videoId]
     );
     await saveAndClose(dbReady);
 
