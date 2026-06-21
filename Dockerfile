@@ -6,7 +6,7 @@ COPY client/ ./client/
 RUN cd client && npm run build
 
 FROM node:22-alpine
-RUN apk add --no-cache ffmpeg python3 make g++ chromium gcompat
+RUN apk add --no-cache ffmpeg python3 make g++ chromium gcompat font-noto-emoji
 RUN npm install -g @puppeteer/browsers && \
   npx @puppeteer/browsers install chrome-headless-shell@latest && \
   CHS_BIN=$(find /chrome-headless-shell -name chrome-headless-shell -type f) && \

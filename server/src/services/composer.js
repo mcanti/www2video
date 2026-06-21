@@ -65,6 +65,7 @@ IMPORTANT — You MUST follow the HyperFrames pattern EXACTLY:
 - NEVER use CSS variables like var(--font-body) or var(--primary-font) in font-family
 - Always include a web-safe fallback: e.g. font-family: 'Inter', Arial, sans-serif
 - Padding inside scenes: 80px minimum on all sides
+- If you use Unicode symbols / emojis, use ONLY common standard ones (👉 ⭐ ✅ ❌ 🚀 👨‍💻 etc.) — avoid obscure emoji that may show as missing glyphs
 
 ## CRITICAL Rules
 - class="clip" goes ONLY on direct children of #root (scene sections)
