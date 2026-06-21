@@ -451,6 +451,7 @@ async function generateInBackground(videoId, prompt, options) {
     let enrichedPrompt = prompt;
     let fetchedFaviconUrl = null;
     let fetchedGoogleFontsUrls = [];
+    let logoBuffer = null;
 
     if (options.sourceUrl) {
       await updateProgress(videoId, 'fetching_website', '🌐 Se preia site-ul...', 1);
@@ -473,7 +474,7 @@ async function generateInBackground(videoId, prompt, options) {
       fetchedGoogleFontsUrls = tokens.googleFontsUrls || [];
 
       // Download site logo for later injection
-      let logoBuffer = null;
+      logoBuffer = null;
       if (tokens.logoUrl) {
         try {
           const logoResp = await fetch(tokens.logoUrl, { signal: AbortSignal.timeout(10000) });
