@@ -49,7 +49,7 @@ export async function generateTTS(text, voice = 'Kore') {
   const body = {
     contents: [{
       role: 'user',
-      parts: [{ text: `Say in Romanian: ${text}` }]
+      parts: [{ text: text }]
     }],
     generationConfig: {
       responseModalities: ['AUDIO'],

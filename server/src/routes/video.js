@@ -612,7 +612,22 @@ async function generateInBackground(videoId, prompt, options) {
         const genAI = new (await import('@google/generative-ai')).GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
         const result = await model.generateContent([
-          { text: 'Generate 3-5 sentences for a professional voiceover narration script (in Romanian) for this video. The sentences should flow naturally from one to the next. Return ONLY the spoken text, no formatting. Total: 40-80 words.' },
+          { text: `Generează 3-5 propoziții pentru un voiceover video profesional (în română). Textul trebuie să includă AUDIO TAGS pentru a controla expresivitatea și ritmul (tag-urile sunt în engleză, textul în română).
+
+Tag-uri disponibile (pune-le în text acolo unde e natural):
+- [neutral] — ton neutru, informativ
+- [positive] — ton pozitiv, prietenos
+- [enthusiasm] — entuziasm, energie
+- [excitement] — încântare, ușoară senzație de „wow"
+- [interest] — interes, curiozitate
+- [awe] — admirație, impresionant
+- [slow] — încetinește ritmul (pentru info importantă)
+- [short pause] — pauză scurtă între secțiuni
+
+Exemplu de format:
+[neutral] Bun venit la LumiBot, asistentul tău virtual inteligent. [short pause] [positive] Cu LumiBot poți automatiza programările non-stop. [enthusiasm] Totul, 24/7! [short pause] [excitement] Vizitează Lumi.bot și începe acum!
+
+Return ONLY the tagged text, no explanations. Total: 40-80 cuvinte, minim 3 propoziții.` },
           { text: `Video content: ${enrichedPrompt}` },
         ]);
         narrationText = result.response.text().trim();
