@@ -110,8 +110,7 @@ The total duration is EXACTLY ${duration} seconds. If there are multiple scenes,
     brandSection.push(`Text content to include: ${options.narrationText}`);
   }
   if (BRAND_LOGO_DATA_URI) {
-    brandSection.push(`Brand logo (data URI, include this as a visual element): ${BRAND_LOGO_DATA_URI.substring(0, 200)}...`);
-    brandSection.push(`Include the brand logo image in the composition — typically in the corner of the last scene or as a subtle brand element throughout. Use: <img src="${BRAND_LOGO_DATA_URI}" style="..." />`);
+    brandSection.push(`A brand logo image is available. Include it as a visual element in the composition — typically in the corner of the last scene, a brand reveal scene, or as a subtle brand element throughout. Use: <img src="__BRAND_LOGO__" style="..." />`);
   }
 
   const fullPrompt = brandSection.length > 0
@@ -133,6 +132,11 @@ The total duration is EXACTLY ${duration} seconds. If there are multiple scenes,
       html = html.replace(/^```\s*$/gm, '');
       html = html.replace(/```/g, '');
       html = html.trim();
+
+      // Replace brand logo placeholder with full data URI (it was too large for the prompt)
+      if (BRAND_LOGO_DATA_URI) {
+        html = html.replace(/__BRAND_LOGO__/g, BRAND_LOGO_DATA_URI);
+      }
 
       // Extract actual HTML if wrapped oddly
       if (!html.startsWith('<!DOCTYPE html') && !html.startsWith('<html')) {
