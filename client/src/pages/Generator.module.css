@@ -855,6 +855,24 @@
   max-height: 80vh;
 }
 
+/* ---- HyperFrames Player ---- */
+.player {
+  width: 100%;
+  background: #000;
+  border: 0;
+  border-radius: var(--radius-md);
+  aspect-ratio: 16/9;
+  transition: all var(--duration-slow) var(--ease-out);
+  display: block;
+}
+
+.playerExpanded {
+  border-radius: 0;
+  aspect-ratio: auto;
+  min-height: 500px;
+  max-height: 80vh;
+}
+
 .video {
   width: 100%;
   border-radius: var(--radius-md) var(--radius-md) 0 0;

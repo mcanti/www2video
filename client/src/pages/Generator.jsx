@@ -169,7 +169,10 @@ export default function Generator() {
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const previewRef = useRef(null);
+  const playerRef = useRef(null);
   const [previewExpanded, setPreviewExpanded] = useState(false);
+  const [playerReady, setPlayerReady] = useState(false);
+  const [playerDuration, setPlayerDuration] = useState(0);
 
   // Video custom controls
   const [videoPlaying, setVideoPlaying] = useState(false);
@@ -378,6 +381,31 @@ export default function Generator() {
     setVideoPlaying(!video.paused);
     setVideoCurrentTime(video.currentTime || 0);
     setVideoDuration(video.duration || 0);
+  }, [mode, videoId]);
+
+  // HyperFrames player event listeners
+  useEffect(() => {
+    const player = playerRef.current;
+    if (!player) return;
+
+    const onReady = (e) => {
+      setPlayerReady(true);
+      setPlayerDuration(e.detail?.duration || 0);
+    };
+    const onError = (e) => {
+      console.error('[hyperframes-player] error:', e);
+      setError('Eroare la încărcarea playerului');
+    };
+
+    player.addEventListener('ready', onReady);
+    player.addEventListener('error', onError);
+    setPlayerReady(false);
+    setPlayerDuration(0);
+
+    return () => {
+      player.removeEventListener('ready', onReady);
+      player.removeEventListener('error', onError);
+    };
   }, [mode, videoId]);
 
   const isGenerating = mode === 'generating' || mode === 'rendering';
@@ -707,7 +735,7 @@ export default function Generator() {
                       {previewExpanded ? '🔽 Restrânge' : '🔼 Extinde'}
                     </button>
                     <button
-                      onClick={() => window.open(`${API}/api/video/${videoId}/preview`, '_blank')}
+                      onClick={() => window.open(`${API}/api/video/${videoId}/composition`, '_blank')}
                       className={styles.btnIcon}
                       title="Deschide într-un tab nou"
                       aria-label="Deschide previzualizarea într-un tab nou"
@@ -732,13 +760,13 @@ export default function Generator() {
                   )}
 
                   <div className={previewExpanded ? styles.previewBodyNoPadding : styles.previewBody}>
-                    <iframe
-                      key={`${videoId}-${previewExpanded}`}
-                      src={`${API}/api/video/${videoId}/preview`}
-                      className={`${styles.iframe} ${previewExpanded ? styles.iframeExpanded : ''}`}
+                    <hyperframes-player
+                      ref={playerRef}
+                      src={`${API}/api/video/${videoId}/composition`}
+                      controls
+                      className={styles.player}
                       style={{ aspectRatio: previewExpanded ? undefined : `${width}/${height}` }}
                       title="Composition preview"
-                      sandbox="allow-scripts allow-same-origin"
                     />
                   </div>
                 </div>

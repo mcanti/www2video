@@ -192,6 +192,8 @@ router.get('/:id/status', async (req, res) => {
       tts_voice: video.tts_voice || 'Kore',
       previewUrl: (video.status === 'composition_ready' || video.status === 'ready')
         ? `/api/video/${video.id}/preview` : null,
+      compositionUrl: (video.status === 'composition_ready' || video.status === 'ready')
+        ? `/api/video/${video.id}/composition` : null,
       downloadUrl: video.status === 'ready' ? `/api/video/${video.id}/download` : null,
       error: video.error,
       createdAt: video.created_at,
@@ -247,6 +249,30 @@ router.get('/:id/preview', async (req, res) => {
 </body>`;
 
     html = html.replace('</body>', previewScript);
+
+    res.set('Content-Type', 'text/html');
+    res.send(html);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/video/:id/composition — serves raw composition HTML (no injected preview script)
+// Used by <hyperframes-player> which has its own timeline discovery
+router.get('/:id/composition', async (req, res) => {
+  try {
+    const db = await getDb();
+    const video = queryOne(db, 'SELECT * FROM videos WHERE id = ?', [req.params.id]);
+    await saveAndClose(db);
+
+    if (!video) return res.status(404).json({ error: 'Not found' });
+    if (video.status !== 'composition_ready' && video.status !== 'ready') {
+      return res.status(400).json({ error: 'Composition not available yet' });
+    }
+    if (!video.composition_path) return res.status(400).json({ error: 'No composition path' });
+
+    const htmlPath = path.join(video.composition_path, 'index.html');
+    const html = await fs.readFile(htmlPath, 'utf-8');
 
     res.set('Content-Type', 'text/html');
     res.send(html);
