@@ -1,0 +1,84 @@
+{
+  "header": {
+    "title": "www2video",
+    "subtitle": "Generator video AI",
+    "debug_show": "🔍 Debug",
+    "debug_hide": "🔍 Ascunde",
+    "lang_toggle": "EN"
+  },
+  "debug": {
+    "title": "Debug Tools",
+    "load_defaults": "🚀 Încarcă valorile LumiBot",
+    "help": "Pre-populează formularul cu valori pentru un video de lansare LumiBot.",
+    "panel_title": "🔍 Detalii Debug",
+    "close": "✕",
+    "video_id": "Video ID",
+    "mode": "Mod",
+    "status": "Status",
+    "composition_html": "HTML Compoziție",
+    "show_html": "▼ Arată",
+    "hide_html": "▲ Ascunde",
+    "empty": "Nicio generare activă. Pornește o generare pentru a vedea detaliile aici."
+  },
+  "sections": {
+    "content": "Conținut",
+    "technical": "Setări tehnice",
+    "audio": "Audio",
+    "advanced": "Avansat"
+  },
+  "form": {
+    "prompt_placeholder": "Descrie videoclipul pe care vrei să-l creezi...",
+    "duration_label": "Durată (secunde)",
+    "resolution_label": "Rezoluție",
+    "audio_narration": "Narare audio",
+    "audio_placeholder": "Scrie textul pe care să-l spună naratorul sau lasă gol pentru generare automată",
+    "voice_label": "Voce narator",
+    "website_extract": "Extrage identitate vizuală de pe site",
+    "website_url_label": "URL site",
+    "website_url_placeholder": "https://exemplu.ro",
+    "subtitles": "Subtitrări",
+    "generate": "Generează video",
+    "generating": "Se generează..."
+  },
+  "history": {
+    "title": "Istoric",
+    "delete": "Șterge",
+    "delete_aria": "Șterge din istoric"
+  },
+  "progress": {
+    "preparing": "Pregătire proiect",
+    "content": "Generare conținut",
+    "saving": "Salvare",
+    "validating": "Validare",
+    "video": "Generare video",
+    "finalizing": "Finalizare",
+    "extracting": "Se extrage identitatea vizuală...",
+    "generating_content": "Se generează conținutul...",
+    "generating_audio": "Se generează nararea audio...",
+    "waiting": "Se pregătește..."
+  },
+  "preview": {
+    "composition_title": "Previzualizare compoziție",
+    "expand": "🔼 Extinde",
+    "collapse": "🔽 Restrânge",
+    "open_new_tab": "Deschide într-un tab nou",
+    "narration": "Narare",
+    "voice": "Voce",
+    "rendering": "Se generează videoclipul MP4...",
+    "error_player": "Eroare la încărcarea playerului"
+  },
+  "actions": {
+    "generate_new": "Generează nouă",
+    "download_mp4": "⬇️ Download MP4",
+    "copy_url": "📋 Copy URL",
+    "copied": "✅ Copiat!",
+    "regenerate": "🔄 Regenerare",
+    "play": "Redare",
+    "pause": "Pauză",
+    "restart": "Reîncepe"
+  },
+  "lumi": {
+    "prompt": "Video de lansare pentru LumiBot — un asistent AI care ajută echipele să automatizeze fluxuri și să crească productivitatea.\n\nScena 1 (0-3s): Titlu futurist cu textul luminos „LumiBot\", subtitlu „Asistent AI pentru Fluxuri de Lucru\". Fundal întunecat cu efect de particule subtil sau strălucire radială în violet/teal. Textul apare din stânga cu efect de clarificare.\n\nScena 2 (3-7s): Trei carduri de funcționalități una lângă alta. Card 1: „Automatizare Inteligentă\" cu iconiță robot. Card 2: „Colaborare în Echipă\" cu iconiță persoane. Card 3: „Disponibilitate 24/7\" cu iconiță ceas. Fiecare card apare secvențial cu o mică animație.\n\nScena 3 (7-10s): Panel CTA puternic. „Ești pregătit să-ți transformi fluxul de lucru?\" text mare și bold. Dedesubt: „Începe pe lumi.bot\" cu efect de buton luminos. Cadrul final rămâne 2s cu o animație subtilă de respirație.",
+    "narration": "Vă prezentăm LumiBot — asistentul tău inteligent pentru fluxuri de lucru. Automatizează sarcinile repetitive, colaborează perfect cu echipa ta și menține proiectele active 24/7. Ești pregătit să transformi modul în care lucrezi? Vizitează Lumi.bot și începe chiar astăzi."
+  }
+}

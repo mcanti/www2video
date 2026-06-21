@@ -1,8 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useTranslation } from '../i18n/useTranslation.jsx';
 import styles from './Generator.module.css';
 
 const API = '';
 const LS_KEY = 'www2video_history';
+
+/* ========== HOOKS ========== */
 
 function usePollStatus(videoId, onReady) {
   const [status, setStatus] = useState(null);
@@ -35,10 +38,11 @@ function usePollStatus(videoId, onReady) {
   return status;
 }
 
+/* ========== HISTORY UTILS ========== */
+
 function loadHistory() {
-  try {
-    return JSON.parse(localStorage.getItem(LS_KEY) || '[]');
-  } catch { return []; }
+  try { return JSON.parse(localStorage.getItem(LS_KEY) || '[]'); }
+  catch { return []; }
 }
 
 function saveToHistory(v) {
@@ -60,6 +64,8 @@ function saveToHistory(v) {
   });
   localStorage.setItem(LS_KEY, JSON.stringify(list.slice(0, 20)));
 }
+
+/* ========== CONSTANTS ========== */
 
 const GEMINI_VOICES = [
   { name: 'Kore', label: 'Female / Firm, strong, authoritative yet approachable' },
@@ -94,60 +100,62 @@ const GEMINI_VOICES = [
   { name: 'Zubenelgenubi', label: 'Male / Casual, laid-back and conversational' },
 ];
 
-const LUMI_DEFAULTS = {
-  prompt: `Product launch video for LumiBot - an AI assistant bot that helps teams automate workflows and boost productivity. 
+const RESOLUTIONS = [
+  { value: '1280x720', label: '1280×720 (HD)' },
+  { value: '1920x1080', label: '1920×1080 (Full HD)' },
+  { value: '2560x1440', label: '2560×1440 (2K)' },
+  { value: '720x1280', label: '720×1280 (Reels)' },
+  { value: '1080x1920', label: '1080×1920 (Full Reels)' },
+  { value: '1080x1080', label: '1080×1080 (Square)' },
+];
 
-Scene 1 (0-3s): Futuristic title card with glowing "LumiBot" text, subtitle "AI-Powered Workflow Assistant". Dark background with subtle particle effect or radial glow in purple/teal. Text slides in from left with a slight blur-to-sharp effect.
+function getLumiDefaults(t) {
+  return {
+    prompt: t('lumi.prompt'),
+    duration: 10,
+    useAudio: true,
+    audioPrompt: t('lumi.narration'),
+    useWebsite: true,
+    sourceUrl: 'https://lumi.bot',
+  };
+}
 
-Scene 2 (3-7s): Show three feature cards side by side. Card 1: "Smart Automation" with robot icon. Card 2: "Team Collaboration" with people icon. Card 3: "24/7 Availability" with clock icon. Each card slides up sequentially with a slight bounce.
+/* ========== HELPERS ========== */
 
-Scene 3 (7-10s): Strong CTA panel. "Ready to Transform Your Workflow?" in large bold text. Below it: "Get Started at lumi.bot" with a glowing button outline effect. Final frame holds for 2s with a subtle breathe animation.`,
-  duration: 10,
-  useAudio: true,
-  audioPrompt: "Introducing LumiBot - your intelligent AI workflow assistant. Automate repetitive tasks, collaborate seamlessly with your team, and keep your projects running 24/7. Ready to transform how you work? Visit Lumi.bot and get started today.",
-  useWebsite: true,
-  sourceUrl: 'https://lumi.bot',
-};
-
-// ========== COLLAPSIBLE SECTION COMPONENTS ==========
-
-const SectionHeader = ({ icon, title, section, expanded, onToggle }) => (
-  <div
-    onClick={() => onToggle(section)}
-    className={`${styles.sectionHeader} ${expanded ? styles.sectionHeaderExpanded : ''}`}
-    role="button"
-    tabIndex={0}
-    aria-expanded={expanded}
-    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(section); } }}
-  >
-    <span className={styles.sectionHeaderIcon}>{icon}</span>
-    <span className={`${styles.sectionHeaderTitle} ${expanded ? styles.sectionHeaderTitleActive : ''}`}>
-      {title}
-    </span>
-    <span className={`${styles.sectionHeaderChevron} ${expanded ? styles.sectionHeaderChevronOpen : ''}`}>
-      ▼
-    </span>
-  </div>
-);
-
-const SectionBody = ({ expanded, children }) => (
-  <div className={`${styles.sectionBody} ${expanded ? styles.sectionBodyOpen : ''}`}>
-    <div className={styles.sectionBodyInner}>
-      {children}
-    </div>
-  </div>
-);
-
-const SectionDivider = () => <div className={styles.sectionDivider} />;
-
-// ========== TIME FORMATTER ==========
 function fmtTime(seconds) {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
+const historyStatusIcon = (s) => {
+  if (s === 'ready') return '✅';
+  if (s === 'composition_ready') return '👁️';
+  if (s === 'failed') return '❌';
+  return '⏳';
+};
+
+const canInteract = (s) => s === 'ready' || s === 'failed' || s === 'composition_ready';
+
+const stepGroups = {
+  'queued': -1, 'initializing': 0, 'initialized': 0,
+  'generating_composition': 1, 'composition_ai': 1, 'composition_done': 1,
+  'generating_audio': 1, 'audio_done': 1, 'audio_skip': 1,
+  'writing_composition': 2,
+  'validating': 3, 'lint_warning': 3, 'validated': 3,
+  'composition_ready': 3,
+  'rendering_video': 4,
+  'finalizing': 5,
+  'fetching_website': 0, 'extracting_identity': 1, 'saving_identity': 2,
+  'ready': 6, 'failed': 6,
+};
+
+/* ========== MAIN COMPONENT ========== */
+
 export default function Generator() {
+  const { t, lang, toggleLang } = useTranslation();
+
+  /* ---- State ---- */
   const [prompt, setPrompt] = useState('');
   const [url, setUrl] = useState('');
   const [duration, setDuration] = useState(10);
@@ -159,7 +167,7 @@ export default function Generator() {
   const [audioPrompt, setAudioPrompt] = useState('');
   const [voiceName, setVoiceName] = useState('Kore');
   const [videoId, setVideoId] = useState(null);
-  const [mode, setMode] = useState('idle'); // idle | generating | preview_composition | rendering | preview | error
+  const [mode, setMode] = useState('idle');
   const [history, setHistory] = useState(loadHistory);
   const [error, setError] = useState('');
   const [historyStatus, setHistoryStatus] = useState(null);
@@ -174,7 +182,7 @@ export default function Generator() {
   const [playerReady, setPlayerReady] = useState(false);
   const [playerDuration, setPlayerDuration] = useState(0);
 
-  // Video custom controls
+  /* ---- Video custom controls ---- */
   const [videoPlaying, setVideoPlaying] = useState(false);
   const [videoCurrentTime, setVideoCurrentTime] = useState(0);
   const [videoDuration, setVideoDuration] = useState(0);
@@ -189,7 +197,7 @@ export default function Generator() {
 
   const isDebug = window.location.search.includes('debug=true');
 
-  // When polling detects a terminal or composition-ready status
+  /* ---- Polling callback ---- */
   const handlePollReady = (data) => {
     if (data.status === 'composition_ready' || data.status === 'ready' || data.status === 'failed') {
       const list = loadHistory();
@@ -201,14 +209,9 @@ export default function Generator() {
       }
     }
 
-    if (data.status === 'composition_ready') {
-      setMode('preview_composition');
-    } else if (data.status === 'ready') {
-      setMode('preview');
-    } else if (data.status === 'failed') {
-      setError(data.error || 'Generation failed');
-      setMode('error');
-    }
+    if (data.status === 'composition_ready') setMode('preview_composition');
+    else if (data.status === 'ready') setMode('preview');
+    else if (data.status === 'failed') { setError(data.error || 'Generation failed'); setMode('error'); }
   };
 
   const status = usePollStatus(
@@ -216,30 +219,23 @@ export default function Generator() {
     handlePollReady
   );
 
-  // Fetch debug HTML when preview is ready
+  /* ---- Fetch debug HTML ---- */
   useEffect(() => {
     if (!videoId || (mode !== 'preview' && mode !== 'preview_composition')) return;
     if (!debugOpen && !isDebug) return;
-    const fetchDebug = async () => {
+    (async () => {
       try {
         const res = await fetch(`${API}/api/video/${videoId}/preview`);
-        if (res.ok) {
-          const html = await res.text();
-          setDebugHtml(html);
-        }
+        if (res.ok) setDebugHtml(await res.text());
       } catch {}
-    };
-    fetchDebug();
+    })();
   }, [videoId, mode, debugOpen, isDebug]);
 
-  // Load a video's full status and restore form fields when clicking history
+  /* ---- Load history video ---- */
   const loadHistoryVideo = async (v) => {
     setVideoId(v.id);
-    if (v.status === 'generating') {
-      setMode('generating');
-    } else {
-      setMode(v.status === 'composition_ready' ? 'preview_composition' : 'preview');
-    }
+    if (v.status === 'generating') setMode('generating');
+    else setMode(v.status === 'composition_ready' ? 'preview_composition' : 'preview');
     setPrompt(v.prompt || '');
     setDuration(v.duration || 10);
     setWidth(v.width || 1280);
@@ -263,57 +259,44 @@ export default function Generator() {
   };
 
   const handleDeleteHistory = async (e, id) => {
-    e.stopPropagation();
-    e.preventDefault();
+    e.stopPropagation(); e.preventDefault();
     try { await fetch(`${API}/api/video/${id}`, { method: 'DELETE' }); } catch {}
     const list = loadHistory().filter(item => item.id !== id);
     localStorage.setItem(LS_KEY, JSON.stringify(list));
     setHistory(loadHistory());
   };
 
+  /* ---- Generate ---- */
   const handleGenerate = async () => {
     const text = prompt.trim();
     if (!text) return;
-
-    setVideoId(null);
-    setMode('generating');
-    setError('');
-    setDebugHtml('');
-
+    setVideoId(null); setMode('generating'); setError(''); setDebugHtml('');
     const options = { quality: 'draft', duration, width, height, useAudio, useSubtitles, voiceName };
     if (audioPrompt.trim()) options.audioPrompt = audioPrompt.trim();
     if (useWebsite && url.trim()) options.sourceUrl = url.trim();
-    const body = { prompt: text, options };
-
     try {
       const res = await fetch(`${API}/api/video/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ prompt: text, options }),
       });
       const data = await res.json();
       if (data.error) { setError(data.error); setMode('error'); return; }
       setVideoId(data.videoId);
       saveToHistory({ id: data.videoId, prompt: text, status: 'generating', duration, width, height, useAudio, useSubtitles, audioPrompt: audioPrompt.trim(), voiceName, useWebsite, sourceUrl: url.trim(), created_at: new Date().toISOString() });
       setHistory(loadHistory());
-    } catch (err) {
-      setError(err.message);
-      setMode('error');
-    }
+    } catch (err) { setError(err.message); setMode('error'); }
   };
 
+  /* ---- Render MP4 ---- */
   const handleRenderMP4 = async () => {
     if (!videoId) return;
-    setMode('rendering');
-    setError('');
+    setMode('rendering'); setError('');
     try {
       const res = await fetch(`${API}/api/video/${videoId}/render`, { method: 'POST' });
       const data = await res.json();
       if (data.error) { setError(data.error); setMode('preview_composition'); return; }
-    } catch (err) {
-      setError(err.message);
-      setMode('preview_composition');
-    }
+    } catch (err) { setError(err.message); setMode('preview_composition'); }
   };
 
   const handleDownload = () => {
@@ -321,45 +304,31 @@ export default function Generator() {
     const a = document.createElement('a');
     a.href = `${API}/api/video/${videoId}/download`;
     a.download = `www2video-${videoId.slice(0, 8)}.mp4`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
   };
 
-  const handleRegenerate = () => {
-    setVideoId(null);
-    handleGenerate();
-  };
+  const handleRegenerate = () => { setVideoId(null); handleGenerate(); };
 
   const loadLumiDefaults = () => {
-    setPrompt(LUMI_DEFAULTS.prompt);
-    setDuration(LUMI_DEFAULTS.duration);
-    setUseAudio(LUMI_DEFAULTS.useAudio);
-    setAudioPrompt(LUMI_DEFAULTS.audioPrompt);
-    setUseWebsite(LUMI_DEFAULTS.useWebsite);
-    setUrl(LUMI_DEFAULTS.sourceUrl);
+    const defaults = getLumiDefaults(t);
+    setPrompt(defaults.prompt); setDuration(defaults.duration);
+    setUseAudio(defaults.useAudio); setAudioPrompt(defaults.audioPrompt);
+    setUseWebsite(defaults.useWebsite); setUrl(defaults.sourceUrl);
   };
 
-  // ========== VIDEO CUSTOM CONTROLS ==========
+  /* ---- Video controls ---- */
   const handleVideoPlayPause = useCallback(() => {
     const video = previewRef.current;
     if (!video) return;
-    if (video.paused) {
-      video.play();
-      setVideoPlaying(true);
-    } else {
-      video.pause();
-      setVideoPlaying(false);
-    }
+    if (video.paused) { video.play(); setVideoPlaying(true); }
+    else { video.pause(); setVideoPlaying(false); }
   }, []);
 
   const handleVideoRestart = useCallback(() => {
     const video = previewRef.current;
     if (!video) return;
-    video.currentTime = 0;
-    setVideoCurrentTime(0);
-    video.play();
-    setVideoPlaying(true);
+    video.currentTime = 0; setVideoCurrentTime(0);
+    video.play(); setVideoPlaying(true);
   }, []);
 
   const handleVideoTimeUpdate = useCallback(() => {
@@ -374,7 +343,6 @@ export default function Generator() {
     setVideoDuration(video.duration);
   }, []);
 
-  // Sync video state when preview changes
   useEffect(() => {
     const video = previewRef.current;
     if (!video) return;
@@ -383,309 +351,233 @@ export default function Generator() {
     setVideoDuration(video.duration || 0);
   }, [mode, videoId]);
 
-  // HyperFrames player event listeners
+  /* ---- HyperFrames player events ---- */
   useEffect(() => {
     const player = playerRef.current;
     if (!player) return;
-
-    const onReady = (e) => {
-      setPlayerReady(true);
-      setPlayerDuration(e.detail?.duration || 0);
-    };
-    const onError = (e) => {
-      console.error('[hyperframes-player] error:', e);
-      setError('Eroare la încărcarea playerului');
-    };
-
+    const onReady = (e) => { setPlayerReady(true); setPlayerDuration(e.detail?.duration || 0); };
+    const onError = (e) => { console.error('[hyperframes-player] error:', e); setError(t('preview.error_player')); };
     player.addEventListener('ready', onReady);
     player.addEventListener('error', onError);
-    setPlayerReady(false);
-    setPlayerDuration(0);
-
-    return () => {
-      player.removeEventListener('ready', onReady);
-      player.removeEventListener('error', onError);
-    };
+    setPlayerReady(false); setPlayerDuration(0);
+    return () => { player.removeEventListener('ready', onReady); player.removeEventListener('error', onError); };
   }, [mode, videoId]);
 
+  /* ---- Derived state ---- */
   const isGenerating = mode === 'generating' || mode === 'rendering';
-
-  const timelineSteps = [
-    { step: 'initializing', icon: '📁', label: 'Pregătire proiect' },
-    { step: 'generating_composition', icon: '🤖', label: 'Generare conținut' },
-    { step: 'writing_composition', icon: '💾', label: 'Salvare' },
-    { step: 'validating', icon: '🔍', label: 'Validare' },
-    { step: 'rendering_video', icon: '🎬', label: 'Generare video' },
-    { step: 'finalizing', icon: '📦', label: 'Finalizare' },
-  ];
-  const stepGroups = {
-    'queued': -1, 'initializing': 0, 'initialized': 0,
-    'generating_composition': 1, 'composition_ai': 1, 'composition_done': 1,
-    'generating_audio': 1, 'audio_done': 1, 'audio_skip': 1,
-    'writing_composition': 2,
-    'validating': 3, 'lint_warning': 3, 'validated': 3,
-    'composition_ready': 3,
-    'rendering_video': 4,
-    'finalizing': 5,
-    'fetching_website': 0, 'extracting_identity': 1, 'saving_identity': 2,
-    'ready': 6, 'failed': 6,
-  };
-
-  const historyStatusIcon = (s) => {
-    if (s === 'ready') return '✅';
-    if (s === 'composition_ready') return '👁️';
-    if (s === 'failed') return '❌';
-    return '⏳';
-  };
-
-  const canInteract = (s) => s === 'ready' || s === 'failed' || s === 'composition_ready';
-
   const showBottomBar = mode === 'preview' || mode === 'preview_composition';
+
+  /* ---- Timeline steps for progress ---- */
+  const timelineSteps = [
+    { step: 'initializing', key: 'progress.preparing' },
+    { step: 'generating_composition', key: 'progress.content' },
+    { step: 'writing_composition', key: 'progress.saving' },
+    { step: 'validating', key: 'progress.validating' },
+    { step: 'rendering_video', key: 'progress.video' },
+    { step: 'finalizing', key: 'progress.finalizing' },
+  ];
 
   return (
     <div className={styles.app}>
       {/* ===== HEADER ===== */}
       <header className={styles.header}>
-        <img
-          src="/assets/logo-inv.png"
-          className={styles.headerLogo}
-          alt="Cognitum"
-        />
-        <div className={styles.headerContent}>
-          <h1 className={styles.headerTitle}>www2video</h1>
-          <span className={styles.headerSubtitle}>AI video generator</span>
+        <img src="/assets/logo-inv.png" className={styles.logo} alt="Cognitum" />
+        <div className={styles.headerTitleGroup}>
+          <h1 className={styles.title}>{t('header.title')}</h1>
+          <span className={styles.subtitle}>{t('header.subtitle')}</span>
         </div>
         <div className={styles.headerActions}>
           <button
+            onClick={toggleLang}
+            className={styles.langBtn}
+            aria-label={lang === 'ro' ? 'Switch to English' : 'Schimbă în Română'}
+            title={lang === 'ro' ? 'Switch to English' : 'Schimbă în Română'}
+          >
+            {t('header.lang_toggle')}
+          </button>
+          <button
             onClick={() => setDebugOpen(!debugOpen)}
             className={`${styles.headerBtn} ${debugOpen ? styles.headerBtnActive : ''}`}
-            title={debugOpen ? 'Ascunde debug' : 'Arată debug'}
-            aria-label={debugOpen ? 'Ascunde panoul de debug' : 'Arată panoul de debug'}
+            aria-label={debugOpen ? t('header.debug_hide') : t('header.debug_show')}
           >
-            🔍 Debug
+            {debugOpen ? t('header.debug_hide') : t('header.debug_show')}
           </button>
           {isDebug && <span className={styles.debugBadge}>DEBUG</span>}
         </div>
       </header>
 
-      {/* ===== MAIN CONTENT ===== */}
       <main className={styles.main}>
-        {/* Debug quick-load (when ?debug=true) */}
+        {/* ===== DEBUG QUICK-LOAD ===== */}
         {isDebug && (
-          <div className={styles.debugPanel}>
-            <div className={styles.debugHeader}>
-              <span className={styles.debugTitle}>⚙️ Debug Tools</span>
-              <button onClick={loadLumiDefaults} className={styles.debugBtn}>
-                🚀 Load lumi.bot defaults
+          <div className={styles.debugQuickPanel}>
+            <div className={styles.debugQuickHeader}>
+              <span className={styles.debugQuickTitle}>⚙️ {t('debug.title')}</span>
+              <button onClick={loadLumiDefaults} className={styles.debugQuickBtn}>
+                {t('debug.load_defaults')}
               </button>
             </div>
-            <div className={styles.debugText}>
-              Use acest buton pentru a pre-popula formularul cu valori potrivite pentru un product launch video LumiBot.
-            </div>
+            <p className={styles.debugQuickText}>{t('debug.help')}</p>
           </div>
         )}
 
-        {/* Debug panel (UI toggle) */}
+        {/* ===== DEBUG INFO PANEL ===== */}
         {debugOpen && (
-          <div className={styles.debugInfoPanel}>
-            <div className={styles.debugInfoHeader}>
-              <span className={styles.debugInfoTitle}>🔍 Debug Info</span>
-              <button onClick={() => setDebugOpen(false)} className={styles.debugClose} aria-label="Închide debug">
-                ✕
+          <div className={styles.debugPanel}>
+            <div className={styles.debugPanelHeader}>
+              <span className={styles.debugPanelTitle}>{t('debug.panel_title')}</span>
+              <button onClick={() => setDebugOpen(false)} className={styles.debugClose} aria-label={t('debug.close')}>
+                {t('debug.close')}
               </button>
             </div>
-            <div className={styles.debugInfoBody}>
+            <div className={styles.debugPanelBody}>
               {videoId ? (
                 <>
-                  <div className={styles.debugInfoSection}>
-                    <div className={styles.debugInfoLabel}>Video ID</div>
-                    <div className={styles.debugInfoValue}>{videoId}</div>
-                  </div>
-                  <div className={styles.debugInfoSection}>
-                    <div className={styles.debugInfoLabel}>Mode</div>
-                    <div className={styles.debugInfoValue}>{mode}</div>
-                  </div>
+                  <DebugRow label={t('debug.video_id')} value={videoId} />
+                  <DebugRow label={t('debug.mode')} value={mode} />
                   {status && (
-                    <div className={styles.debugInfoSection}>
-                      <div className={styles.debugInfoLabel}>Status</div>
-                      <pre className={styles.debugInfoPre}>{JSON.stringify(status, null, 2)}</pre>
+                    <div className={styles.debugSection}>
+                      <div className={styles.debugLabel}>{t('debug.status')}</div>
+                      <pre className={styles.debugPre}>{JSON.stringify(status, null, 2)}</pre>
                     </div>
                   )}
                   {debugHtml && (
-                    <div className={styles.debugInfoSection}>
-                      <div className={styles.debugInfoLabel}>HTML Compoziție</div>
-                      <button
-                        onClick={() => setShowDetails(prev => !prev)}
-                        className={styles.debugToggle}
-                      >
-                        {showDetails ? '▲ Ascunde' : '▼ Arată'} HTML ({Math.round(debugHtml.length / 1024)} KB)
+                    <div className={styles.debugSection}>
+                      <div className={styles.debugLabel}>{t('debug.composition_html')}</div>
+                      <button onClick={() => setShowDetails(prev => !prev)} className={styles.debugToggle}>
+                        {showDetails ? t('debug.hide_html') : t('debug.show_html')} ({Math.round(debugHtml.length / 1024)} KB)
                       </button>
-                      {showDetails && (
-                        <pre className={styles.debugInfoCode}>{debugHtml}</pre>
-                      )}
+                      {showDetails && <pre className={styles.debugCode}>{debugHtml}</pre>}
                     </div>
                   )}
                 </>
               ) : (
-                <div className={styles.debugInfoEmpty}>
-                  Nicio generare activă. Pornește o generare pentru a vedea detaliile aici.
-                </div>
+                <p className={styles.debugEmpty}>{t('debug.empty')}</p>
               )}
             </div>
           </div>
         )}
 
+        {/* ===== TWO-COLUMN LAYOUT ===== */}
         <div className={styles.layout}>
-          {/* ===== LEFT PANEL: FORM ===== */}
+          {/* ---- LEFT: FORM ---- */}
           <div className={styles.formPanel}>
-            <SectionHeader icon="📝" title="Conținut" section="content" expanded={expandedSections.content} onToggle={toggleSection} />
+            {/* Content Section */}
+            <SectionHeader icon="📝" title={t('sections.content')} section="content" expanded={expandedSections.content} onToggle={toggleSection} />
             <SectionBody expanded={expandedSections.content}>
               <textarea
                 value={prompt}
                 onChange={e => setPrompt(e.target.value)}
-                placeholder="e.g. Un clip de prezentare de 10 secunde pentru o cafea premium..."
+                placeholder={t('form.prompt_placeholder')}
                 rows={4}
                 className={styles.textarea}
               />
             </SectionBody>
-            <SectionDivider />
 
-            <SectionHeader icon="⚙️" title="Setări tehnice" section="technical" expanded={expandedSections.technical} onToggle={toggleSection} />
+            {/* Technical Section */}
+            <SectionHeader icon="⚙️" title={t('sections.technical')} section="technical" expanded={expandedSections.technical} onToggle={toggleSection} />
             <SectionBody expanded={expandedSections.technical}>
-              <div className={styles.formRow}>
-                <div className={styles.formRowItem}>
-                  <label className={styles.label}>Durată (secunde)</label>
+              <div className={styles.inlineFields}>
+                <div className={styles.fieldSm}>
+                  <label className={styles.label}>{t('form.duration_label')}</label>
                   <input type="text" inputMode="numeric" value={duration}
-                    onChange={e => {
-                      const v = e.target.value;
-                      if (v === '' || /^\d+$/.test(v)) {
-                        const n = parseInt(v, 10);
-                        if (n >= 1 && n <= 120) setDuration(n);
-                        else if (v === '') setDuration('');
-                      }
-                    }}
-                    onBlur={e => {
-                      const n = parseInt(e.target.value, 10);
-                      if (isNaN(n) || n < 1) setDuration(10);
-                      else if (n > 120) setDuration(120);
-                      else setDuration(n);
-                    }}
-                    className={`${styles.input} ${styles.inputCompact}`}
+                    onChange={e => { const v = e.target.value; if (v === '' || /^\d+$/.test(v)) { const n = parseInt(v, 10); if (n >= 1 && n <= 120) setDuration(n); else if (v === '') setDuration(''); } }}
+                    onBlur={e => { const n = parseInt(e.target.value, 10); if (isNaN(n) || n < 1) setDuration(10); else if (n > 120) setDuration(120); else setDuration(n); }}
+                    className={styles.inputSm}
                   />
                 </div>
-                <div className={styles.formRowItemFlex}>
-                  <label className={styles.label}>Rezoluție</label>
+                <div className={styles.fieldGrow}>
+                  <label className={styles.label}>{t('form.resolution_label')}</label>
                   <select value={`${width}x${height}`}
                     onChange={e => { const [w, h] = e.target.value.split('x').map(Number); setWidth(w); setHeight(h); }}
                     className={styles.select}
                   >
-                    <option value="1280x720">1280×720 (HD)</option>
-                    <option value="1920x1080">1920×1080 (Full HD)</option>
-                    <option value="2560x1440">2560×1440 (2K)</option>
-                    <option value="720x1280">720×1280 (Reels)</option>
-                    <option value="1080x1920">1080×1920 (Full Reels)</option>
-                    <option value="1080x1080">1080×1080 (Square)</option>
+                    {RESOLUTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                   </select>
                 </div>
               </div>
             </SectionBody>
-            <SectionDivider />
 
-            <SectionHeader icon="🎵" title="Audio" section="audio" expanded={expandedSections.audio} onToggle={toggleSection} />
+            {/* Audio Section */}
+            <SectionHeader icon="🎵" title={t('sections.audio')} section="audio" expanded={expandedSections.audio} onToggle={toggleSection} />
             <SectionBody expanded={expandedSections.audio}>
-              <div className={styles.checkboxRow}>
-                <input type="checkbox" id="chk-audio" checked={useAudio}
-                  onChange={e => setUseAudio(e.target.checked)} className={styles.checkbox} />
-                <label htmlFor="chk-audio" className={styles.checkboxLabel}>🎵 Audio (narare)</label>
-              </div>
+              <label className={styles.checkboxRow}>
+                <input type="checkbox" checked={useAudio} onChange={e => setUseAudio(e.target.checked)} className={styles.checkbox} />
+                <span className={styles.checkboxLabel}>🎵 {t('form.audio_narration')}</span>
+              </label>
               {useAudio && (
-                <>
+                <div className={styles.conditionalFields}>
                   <textarea value={audioPrompt} onChange={e => setAudioPrompt(e.target.value)}
-                    placeholder="Scrie textul pe care sa-l spuna naratorul sau lasă gol și va fi generat automat un text potrivit"
-                    rows={3} className={styles.textarea}
-                    style={{ marginTop: 12, marginBottom: 12, minHeight: 60 }} />
-                  <label className={styles.label}>Voce narator</label>
+                    placeholder={t('form.audio_placeholder')} rows={3}
+                    className={styles.textareaSm}
+                  />
+                  <label className={styles.label}>{t('form.voice_label')}</label>
                   <select value={voiceName} onChange={e => setVoiceName(e.target.value)} className={styles.select}>
-                    {GEMINI_VOICES.map(v => (
-                      <option key={v.name} value={v.name}>{v.label}</option>
-                    ))}
+                    {GEMINI_VOICES.map(v => <option key={v.name} value={v.name}>{v.label}</option>)}
                   </select>
-                </>
+                </div>
               )}
             </SectionBody>
-            <SectionDivider />
 
-            <SectionHeader icon="🌐" title="Avansat" section="advanced" expanded={expandedSections.advanced} onToggle={toggleSection} />
+            {/* Advanced Section */}
+            <SectionHeader icon="🌐" title={t('sections.advanced')} section="advanced" expanded={expandedSections.advanced} onToggle={toggleSection} />
             <SectionBody expanded={expandedSections.advanced}>
-              <div className={styles.formGroup}>
-                <div className={styles.checkboxRow}>
-                  <input type="checkbox" id="chk-website" checked={useWebsite}
-                    onChange={e => setUseWebsite(e.target.checked)} className={styles.checkbox} />
-                  <label htmlFor="chk-website" className={styles.checkboxLabel}>🌐 Extrage identitate vizuală de pe site</label>
+              <label className={styles.checkboxRow}>
+                <input type="checkbox" checked={useWebsite} onChange={e => setUseWebsite(e.target.checked)} className={styles.checkbox} />
+                <span className={styles.checkboxLabel}>🌐 {t('form.website_extract')}</span>
+              </label>
+              {useWebsite && (
+                <div className={styles.conditionalFields}>
+                  <label className={styles.label}>{t('form.website_url_label')}</label>
+                  <input type="text" value={url} onChange={e => setUrl(e.target.value)} placeholder={t('form.website_url_placeholder')} className={styles.input} />
                 </div>
-                {useWebsite && (
-                  <div style={{ marginTop: 10 }}>
-                    <label className={styles.label}>URL site</label>
-                    <input type="text" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://example.com" className={styles.input} />
-                  </div>
-                )}
-              </div>
-              <div className={styles.checkboxRow} style={{ marginTop: 14 }}>
-                <input type="checkbox" id="chk-subs" checked={useSubtitles}
-                  onChange={e => setUseSubtitles(e.target.checked)} className={styles.checkbox} />
-                <label htmlFor="chk-subs" className={styles.checkboxLabel}>💬 Subtitrări</label>
-              </div>
+              )}
+              <label className={`${styles.checkboxRow} ${styles.checkboxRowLast}`}>
+                <input type="checkbox" checked={useSubtitles} onChange={e => setUseSubtitles(e.target.checked)} className={styles.checkbox} />
+                <span className={styles.checkboxLabel}>💬 {t('form.subtitles')}</span>
+              </label>
             </SectionBody>
 
-            {/* Generate button in form (visible when idle or generating) */}
+            {/* Generate Button (when idle/generating) */}
             {!showBottomBar && (
               <div className={styles.formActions}>
-                <button onClick={handleGenerate} disabled={isGenerating || !prompt.trim()}
-                  className={styles.btnPrimary}
-                >
-                  {isGenerating ? '⏳ Se generează...' : '🚀 Generare video'}
+                <button onClick={handleGenerate} disabled={isGenerating || !prompt.trim()} className={styles.btnPrimary}>
+                  {isGenerating ? `⏳ ${t('form.generating')}` : `🚀 ${t('form.generate')}`}
                 </button>
               </div>
             )}
           </div>
 
-          {/* ===== RIGHT PANEL: OUTPUT ===== */}
+          {/* ---- RIGHT: OUTPUT ---- */}
           <div className={styles.outputPanel}>
-            {/* History — collapsible panel */}
+            {/* History Panel */}
             {history.length > 0 && (
               <div className={styles.historyPanel}>
-                <div
+                <button
                   className={styles.historyToggle}
                   onClick={() => setHistoryExpanded(!historyExpanded)}
-                  role="button"
-                  tabIndex={0}
                   aria-expanded={historyExpanded}
-                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setHistoryExpanded(!historyExpanded); } }}
                 >
                   <span className={styles.historyToggleIcon}>🕐</span>
-                  <span className={styles.historyToggleTitle}>Istoric</span>
-                  <span className={styles.historyToggleCount}>{history.length}</span>
-                  <span className={`${styles.historyToggleChevron} ${historyExpanded ? styles.historyToggleChevronOpen : ''}`}>
-                    ▼
-                  </span>
-                </div>
+                  <span className={styles.historyToggleTitle}>{t('history.title')}</span>
+                  <span className={styles.historyToggleBadge}>{history.length}</span>
+                  <span className={`${styles.historyToggleChevron} ${historyExpanded ? styles.chevronOpen : ''}`}>▾</span>
+                </button>
                 {historyExpanded && (
                   <div className={styles.historyList}>
                     {history.map(v => (
                       <div key={v.id}
                         onClick={() => loadHistoryVideo(v)}
-                        className={canInteract(v.status) ? styles.historyItemClickable : styles.historyItem}
+                        className={canInteract(v.status) ? styles.historyItem : styles.historyItemDisabled}
                       >
-                        <span className={styles.historyStatus}>
-                          {historyStatusIcon(v.status)}
-                        </span>
-                        <span className={styles.historyPrompt}>
+                        <span className={styles.historyItemIcon}>{historyStatusIcon(v.status)}</span>
+                        <span className={styles.historyItemText}>
                           {v.prompt.length > 48 ? v.prompt.slice(0, 48) + '…' : v.prompt}
                         </span>
-                        <button onClick={(e) => handleDeleteHistory(e, v.id)}
-                          className={styles.historyDelete}
-                          title="Șterge"
-                          aria-label="Șterge din istoric"
+                        <button
+                          onClick={(e) => handleDeleteHistory(e, v.id)}
+                          className={styles.historyItemDelete}
+                          title={t('history.delete')}
+                          aria-label={t('history.delete_aria')}
                         >✕</button>
                       </div>
                     ))}
@@ -694,201 +586,182 @@ export default function Generator() {
               </div>
             )}
 
-            {/* Generating state (composition phase) */}
+            {/* Generating State */}
             {mode === 'generating' && (
-              <div className={styles.statusPanel}>
+              <div className={styles.statusCard}>
                 <div className={styles.spinner} />
-                <div className={styles.statusTitle}>
-                  {status?.progress?.step === 'fetching_website' ? '🌐 Se extrage identitatea vizuală...'
-                    : status?.progress?.step === 'generating_composition' ? '🤖 Se generează conținutul...'
-                    : status?.progress?.step === 'generating_audio' ? '🎵 Se generează nararea audio...'
-                    : status?.progress?.message || '⏳ Se pregătește...'}
-                </div>
+                <p className={styles.statusText}>
+                  {status?.progress?.step === 'fetching_website' ? `🌐 ${t('progress.extracting')}`
+                    : status?.progress?.step === 'generating_composition' ? `🤖 ${t('progress.generating_content')}`
+                    : status?.progress?.step === 'generating_audio' ? `🎵 ${t('progress.generating_audio')}`
+                    : status?.progress?.message || `⏳ ${t('progress.waiting')}`}
+                </p>
                 <div className={styles.progressSteps}>
                   {timelineSteps.slice(0, 4).map((s, i) => {
                     const currentStep = status?.progress?.step ? (stepGroups[status.progress.step] ?? -1) : -1;
                     const done = currentStep > i;
                     const active = currentStep === i;
                     return (
-                      <div key={s.step} className={styles.progressStep}>
-                        <div className={`${styles.progressDot} ${done ? styles.progressDotDone : active ? styles.progressDotActive : ''}`} />
-                      </div>
+                      <div key={s.step} className={`${styles.progressDot} ${done ? styles.progressDotDone : active ? styles.progressDotActive : ''}`} />
                     );
                   })}
                 </div>
               </div>
             )}
 
-            {/* Composition ready — HTML preview */}
+            {/* Composition Preview */}
             {mode === 'preview_composition' && videoId && (
-              <div>
-                <div className={styles.previewPanel}>
-                  <div className={styles.previewHeader}>
-                    <span className={styles.previewTitle}>👁️ Previzualizare compoziție</span>
-                    <span className={styles.previewResolution}>{width}×{height}</span>
-                    <div className={styles.previewSpacer} />
-                    <button
-                      onClick={() => setPreviewExpanded(!previewExpanded)}
-                      className={styles.btnIcon}
-                      aria-label={previewExpanded ? 'Restrânge previzualizarea' : 'Extinde previzualizarea'}
-                    >
-                      {previewExpanded ? '🔽 Restrânge' : '🔼 Extinde'}
-                    </button>
-                    <button
-                      onClick={() => window.open(`${API}/api/video/${videoId}/composition`, '_blank')}
-                      className={styles.btnIcon}
-                      title="Deschide într-un tab nou"
-                      aria-label="Deschide previzualizarea într-un tab nou"
-                    >
-                      ↗️
-                    </button>
+              <div className={styles.previewCard}>
+                <div className={styles.previewHeader}>
+                  <span className={styles.previewTitle}>👁️ {t('preview.composition_title')}</span>
+                  <span className={styles.previewResolution}>{width}×{height}</span>
+                  <div className={styles.previewSpacer} />
+                  <button onClick={() => setPreviewExpanded(!previewExpanded)} className={styles.btnSm} aria-label={previewExpanded ? t('preview.collapse') : t('preview.expand')}>
+                    {previewExpanded ? t('preview.collapse') : t('preview.expand')}
+                  </button>
+                  <button onClick={() => window.open(`${API}/api/video/${videoId}/composition`, '_blank')} className={styles.btnIconSm} title={t('preview.open_new_tab')} aria-label={t('preview.open_new_tab')}>
+                    ↗️
+                  </button>
+                </div>
+                {historyStatus && (historyStatus.tts_text || historyStatus.tts_voice) && (
+                  <div className={styles.metaBar}>
+                    {historyStatus.tts_text && <span className={styles.metaItem}><b>{t('preview.narration')}:</b> {historyStatus.tts_text}</span>}
+                    {historyStatus.tts_voice && <span className={styles.metaItem}><b>{t('preview.voice')}:</b> {historyStatus.tts_voice}</span>}
                   </div>
-
-                  {historyStatus && (historyStatus.tts_text || historyStatus.tts_voice) && (
-                    <div className={styles.narrationInfo}>
-                      {historyStatus.tts_text && (
-                        <div className={styles.narrationLine}>
-                          <span className={styles.narrationLabel}>🎙️ Narare:</span> {historyStatus.tts_text}
-                        </div>
-                      )}
-                      {historyStatus.tts_voice && (
-                        <div className={styles.narrationLine}>
-                          <span className={styles.narrationLabel}>🔊 Voce:</span> {historyStatus.tts_voice}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  <div className={previewExpanded ? styles.previewBodyNoPadding : styles.previewBody}>
-                    <hyperframes-player
-                      ref={playerRef}
-                      src={`${API}/api/video/${videoId}/composition`}
-                      controls
-                      className={styles.player}
-                      style={{ aspectRatio: previewExpanded ? undefined : `${width}/${height}` }}
-                      title="Composition preview"
-                    />
-                  </div>
+                )}
+                <div className={previewExpanded ? styles.playerExpanded : styles.playerBox}>
+                  <hyperframes-player
+                    ref={playerRef}
+                    src={`${API}/api/video/${videoId}/composition`}
+                    controls
+                    className={styles.player}
+                    style={{ aspectRatio: previewExpanded ? undefined : `${width}/${height}` }}
+                    title="Composition preview"
+                  />
                 </div>
               </div>
             )}
 
-            {/* Rendering MP4 state */}
+            {/* Rendering State */}
             {mode === 'rendering' && (
-              <div className={styles.statusPanel}>
-                <div className={`${styles.spinner} ${styles.spinnerSuccess}`} />
-                <div className={styles.statusTitle}>🎬 Se generează videoclipul MP4...</div>
+              <div className={styles.statusCard}>
+                <div className={`${styles.spinner} ${styles.spinnerGreen}`} />
+                <p className={styles.statusText}>🎬 {t('preview.rendering')}</p>
                 <div className={styles.progressBar}>
                   <div className={styles.progressBarFill} />
                 </div>
-                <style>{`@keyframes shimmer { 0% { width: 20%; } 50% { width: 70%; } 100% { width: 20%; } }`}</style>
               </div>
             )}
 
-            {/* Preview — MP4 ready */}
-            {(mode === 'preview') && videoId && (
-              <div>
-                <div className={styles.previewPanel}>
-                  {historyStatus && (
-                    <div className={styles.narrationInfo} style={{ borderBottom: 'none' }}>
-                      {historyStatus.tts_text && (
-                        <div className={styles.narrationLine}>
-                          <span className={styles.narrationLabel}>Narare:</span> {historyStatus.tts_text}
-                        </div>
-                      )}
-                      {historyStatus.tts_voice && (
-                        <div className={styles.narrationLine}>
-                          <span className={styles.narrationLabel}>Voce:</span> {historyStatus.tts_voice}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  <div className={styles.previewBodyNoPadding}>
-                    <video
-                      ref={previewRef}
-                      className={styles.video}
-                      style={{ aspectRatio: `${width}/${height}` }}
-                      onTimeUpdate={handleVideoTimeUpdate}
-                      onLoadedMetadata={handleVideoLoadedMetadata}
-                      onPlay={() => setVideoPlaying(true)}
-                      onPause={() => setVideoPlaying(false)}
-                    >
-                      <source src={`${API}/api/video/${videoId}/download`} type="video/mp4" />
-                    </video>
-
-                    {/* Custom video controls */}
-                    <div className={styles.videoControls}>
-                      <button
-                        onClick={handleVideoPlayPause}
-                        className={styles.videoCtrlBtn}
-                        aria-label={videoPlaying ? 'Pauză' : 'Redare'}
-                        title={videoPlaying ? 'Pauză' : 'Redare'}
-                      >
-                        {videoPlaying ? '⏸️' : '▶️'}
-                      </button>
-                      <button
-                        onClick={handleVideoRestart}
-                        className={styles.videoCtrlBtn}
-                        aria-label="Reîncepe"
-                        title="Reîncepe"
-                      >
-                        🔄
-                      </button>
-                      <span className={styles.videoTime}>
-                        {fmtTime(videoCurrentTime)} / {fmtTime(videoDuration || duration)}
-                      </span>
-                    </div>
+            {/* MP4 Preview */}
+            {mode === 'preview' && videoId && (
+              <div className={styles.previewCard}>
+                {historyStatus && (
+                  <div className={styles.metaBar}>
+                    {historyStatus.tts_text && <span className={styles.metaItem}><b>{t('preview.narration')}:</b> {historyStatus.tts_text}</span>}
+                    {historyStatus.tts_voice && <span className={styles.metaItem}><b>{t('preview.voice')}:</b> {historyStatus.tts_voice}</span>}
                   </div>
+                )}
+                <video
+                  ref={previewRef}
+                  className={styles.video}
+                  style={{ aspectRatio: `${width}/${height}` }}
+                  onTimeUpdate={handleVideoTimeUpdate}
+                  onLoadedMetadata={handleVideoLoadedMetadata}
+                  onPlay={() => setVideoPlaying(true)}
+                  onPause={() => setVideoPlaying(false)}
+                >
+                  <source src={`${API}/api/video/${videoId}/download`} type="video/mp4" />
+                </video>
+                <div className={styles.videoControls}>
+                  <button onClick={handleVideoPlayPause} className={styles.videoCtrlBtn} aria-label={videoPlaying ? t('actions.pause') : t('actions.play')}>
+                    {videoPlaying ? '⏸️' : '▶️'}
+                  </button>
+                  <button onClick={handleVideoRestart} className={styles.videoCtrlBtn} aria-label={t('actions.restart')}>
+                    🔄
+                  </button>
+                  <span className={styles.videoTime}>
+                    {fmtTime(videoCurrentTime)} / {fmtTime(videoDuration || duration)}
+                  </span>
                 </div>
-
-                {error && <div className={styles.errorBox}>❌ {error}</div>}
               </div>
             )}
+
+            {/* Error */}
+            {error && <div className={styles.errorBox}>❌ {error}</div>}
           </div>
         </div>
       </main>
 
-      {/* ===== FIXED BOTTOM ACTION BAR ===== */}
+      {/* ===== FIXED BOTTOM BAR ===== */}
       {showBottomBar && (
-        <div className={styles.bottomBar}>
-          <div className={styles.bottomBarInner}>
-            <button onClick={handleGenerate} disabled={isGenerating || !prompt.trim()}
-              className={styles.btnPrimary}
-              style={{ flex: 1 }}
-            >
-              {isGenerating ? '⏳ Se generează...' : '🚀 Generare nouă'}
-            </button>
-            {mode === 'preview' && (
-              <button onClick={handleDownload} className={styles.btnSuccess} style={{ flex: 1 }}>
-                ⬇️ Download MP4
+        <>
+          <div className={styles.bottomBar}>
+            <div className={styles.bottomBarInner}>
+              <button onClick={handleGenerate} disabled={isGenerating || !prompt.trim()} className={styles.btnPrimary} style={{ flex: 1 }}>
+                {isGenerating ? `⏳ ${t('form.generating')}` : `🚀 ${t('actions.generate_new')}`}
               </button>
-            )}
-            {mode === 'preview' && (
-              <button onClick={() => {
-                navigator.clipboard.writeText(`${window.location.origin}/api/video/${videoId}/download`);
-                setCopiedUrl(true);
-                setTimeout(() => setCopiedUrl(false), 2000);
-              }}
-                className={styles.btnSecondary}
-                style={{ flex: '0 0 auto' }}
-              >{copiedUrl ? '✅ Copiat!' : '📋 Copy URL'}</button>
-            )}
-            {mode === 'preview_composition' && (
-              <>
-                <button onClick={handleRenderMP4} className={styles.btnSuccess} style={{ flex: 1 }}>
-                  ⬇️ Download MP4
+              {mode === 'preview' && (
+                <button onClick={handleDownload} className={styles.btnSuccess} style={{ flex: 1 }}>
+                  {t('actions.download_mp4')}
                 </button>
-                <button onClick={handleRegenerate} className={styles.btnSecondary} style={{ flex: 1 }}>
-                  🔄 Regenerare
+              )}
+              {mode === 'preview' && (
+                <button onClick={() => {
+                  navigator.clipboard.writeText(`${window.location.origin}/api/video/${videoId}/download`);
+                  setCopiedUrl(true); setTimeout(() => setCopiedUrl(false), 2000);
+                }} className={styles.btnSecondary}>
+                  {copiedUrl ? t('actions.copied') : t('actions.copy_url')}
                 </button>
-              </>
-            )}
+              )}
+              {mode === 'preview_composition' && (
+                <>
+                  <button onClick={handleRenderMP4} className={styles.btnSuccess} style={{ flex: 1 }}>
+                    {t('actions.download_mp4')}
+                  </button>
+                  <button onClick={handleRegenerate} className={styles.btnSecondary} style={{ flex: 1 }}>
+                    {t('actions.regenerate')}
+                  </button>
+                </>
+              )}
+            </div>
           </div>
-        </div>
+          <div className={styles.bottomBarSpacer} />
+        </>
       )}
+    </div>
+  );
+}
 
-      {/* Spacer for bottom bar */}
-      {showBottomBar && <div className={styles.bottomBarSpacer} />}
+/* ========== SUB-COMPONENTS ========== */
+
+function SectionHeader({ icon, title, section, expanded, onToggle }) {
+  return (
+    <button
+      onClick={() => onToggle(section)}
+      className={`${styles.sectionHeader} ${expanded ? styles.sectionHeaderOpen : ''}`}
+      aria-expanded={expanded}
+    >
+      <span className={styles.sectionHeaderIcon}>{icon}</span>
+      <span className={styles.sectionHeaderTitle}>{title}</span>
+      <span className={`${styles.sectionHeaderChevron} ${expanded ? styles.chevronOpen : ''}`}>▾</span>
+    </button>
+  );
+}
+
+function SectionBody({ expanded, children }) {
+  return (
+    <div className={`${styles.sectionBody} ${expanded ? styles.sectionBodyOpen : ''}`}>
+      <div className={styles.sectionBodyInner}>{children}</div>
+    </div>
+  );
+}
+
+function DebugRow({ label, value }) {
+  return (
+    <div className={styles.debugRow}>
+      <span className={styles.debugLabel}>{label}</span>
+      <code className={styles.debugMono}>{value}</code>
     </div>
   );
 }

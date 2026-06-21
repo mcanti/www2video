@@ -1,0 +1,84 @@
+{
+  "header": {
+    "title": "www2video",
+    "subtitle": "AI video generator",
+    "debug_show": "🔍 Debug",
+    "debug_hide": "🔍 Hide",
+    "lang_toggle": "RO"
+  },
+  "debug": {
+    "title": "Debug Tools",
+    "load_defaults": "🚀 Load LumiBot defaults",
+    "help": "Pre-fill the form with values for a LumiBot product launch video.",
+    "panel_title": "🔍 Debug Details",
+    "close": "✕",
+    "video_id": "Video ID",
+    "mode": "Mode",
+    "status": "Status",
+    "composition_html": "Composition HTML",
+    "show_html": "▼ Show",
+    "hide_html": "▲ Hide",
+    "empty": "No active generation. Start a generation to see details here."
+  },
+  "sections": {
+    "content": "Content",
+    "technical": "Technical Settings",
+    "audio": "Audio",
+    "advanced": "Advanced"
+  },
+  "form": {
+    "prompt_placeholder": "Describe the video you want to create...",
+    "duration_label": "Duration (seconds)",
+    "resolution_label": "Resolution",
+    "audio_narration": "Audio narration",
+    "audio_placeholder": "Write the narration text or leave empty for auto-generation",
+    "voice_label": "Narrator voice",
+    "website_extract": "Extract visual identity from website",
+    "website_url_label": "Website URL",
+    "website_url_placeholder": "https://example.com",
+    "subtitles": "Subtitles",
+    "generate": "Generate video",
+    "generating": "Generating..."
+  },
+  "history": {
+    "title": "History",
+    "delete": "Delete",
+    "delete_aria": "Delete from history"
+  },
+  "progress": {
+    "preparing": "Preparing project",
+    "content": "Generating content",
+    "saving": "Saving",
+    "validating": "Validating",
+    "video": "Generating video",
+    "finalizing": "Finalizing",
+    "extracting": "Extracting visual identity...",
+    "generating_content": "Generating content...",
+    "generating_audio": "Generating audio narration...",
+    "waiting": "Preparing..."
+  },
+  "preview": {
+    "composition_title": "Composition preview",
+    "expand": "🔼 Expand",
+    "collapse": "🔽 Collapse",
+    "open_new_tab": "Open in new tab",
+    "narration": "Narration",
+    "voice": "Voice",
+    "rendering": "Generating MP4 video...",
+    "error_player": "Player loading error"
+  },
+  "actions": {
+    "generate_new": "New generation",
+    "download_mp4": "⬇️ Download MP4",
+    "copy_url": "📋 Copy URL",
+    "copied": "✅ Copied!",
+    "regenerate": "🔄 Regenerate",
+    "play": "Play",
+    "pause": "Pause",
+    "restart": "Restart"
+  },
+  "lumi": {
+    "prompt": "Product launch video for LumiBot — an AI assistant that helps teams automate workflows and boost productivity.\n\nScene 1 (0-3s): Futuristic title card with glowing \"LumiBot\" text, subtitle \"AI-Powered Workflow Assistant\". Dark background with subtle particle effect or radial glow in purple/teal. Text slides in from left with a slight blur-to-sharp effect.\n\nScene 2 (3-7s): Three feature cards side by side. Card 1: \"Smart Automation\" with robot icon. Card 2: \"Team Collaboration\" with people icon. Card 3: \"24/7 Availability\" with clock icon. Each card slides up sequentially with a slight bounce.\n\nScene 3 (7-10s): Strong CTA panel. \"Ready to Transform Your Workflow?\" in large bold text. Below it: \"Get Started at lumi.bot\" with a glowing button outline effect. Final frame holds for 2s with a subtle breathe animation.",
+    "narration": "Introducing LumiBot — your intelligent AI workflow assistant. Automate repetitive tasks, collaborate seamlessly with your team, and keep your projects running 24/7. Ready to transform how you work? Visit Lumi.bot and get started today."
+  }
+}
