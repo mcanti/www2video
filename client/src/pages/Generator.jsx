@@ -7,7 +7,7 @@ import {
   Sparkles, Settings, Play, Pause, RotateCcw, Download, Copy, Check,
   X, ChevronDown, Clock, Bug, Maximize2, ExternalLink, Trash2,
   Volume2, Subtitles, Globe, Languages, Loader, AlertCircle,
-  CheckCircle, Eye, Plus, FileText, Monitor,
+  CheckCircle, Eye, Plus, FileText, Monitor, Film,
 } from 'lucide-react';
 
 const API = '';
@@ -61,6 +61,8 @@ function saveToHistory(v) {
     useAudio: v.useAudio || false, useSubtitles: v.useSubtitles || false,
     voiceName: v.voiceName || 'Kore', useWebsite: v.useWebsite || false,
     sourceUrl: v.sourceUrl || '', created_at: v.created_at || new Date().toISOString(),
+    useStockVideo: v.useStockVideo || false, stockVideoProvider: v.stockVideoProvider || 'pexels',
+    pexelsApiKey: v.pexelsApiKey || '', pixabayApiKey: v.pixabayApiKey || '', coverrApiKey: v.coverrApiKey || '',
   });
   localStorage.setItem(LS_KEY, JSON.stringify(list.slice(0, 20)));
 }
@@ -152,6 +154,11 @@ export default function Generator() {
   const [useWebsite, setUseWebsite] = useState(false);
   const [useAudio, setUseAudio] = useState(false);
   const [useSubtitles, setUseSubtitles] = useState(false);
+  const [useStockVideo, setUseStockVideo] = useState(false);
+  const [stockVideoProvider, setStockVideoProvider] = useState('pexels');
+  const [pexelsApiKey, setPexelsApiKey] = useState('');
+  const [pixabayApiKey, setPixabayApiKey] = useState('');
+  const [coverrApiKey, setCoverrApiKey] = useState('');
   const [audioPrompt, setAudioPrompt] = useState('');
   const [voiceName, setVoiceName] = useState('Kore');
   const [videoId, setVideoId] = useState(null);
@@ -223,6 +230,11 @@ export default function Generator() {
     setUseAudio(v.useAudio || false); setUseSubtitles(v.useSubtitles || false);
     setAudioPrompt(v.audioPrompt || ''); setVoiceName(v.voiceName || 'Kore');
     setUseWebsite(v.useWebsite || false); setUrl(v.sourceUrl || '');
+    setUseStockVideo(v.useStockVideo || false);
+    setStockVideoProvider(v.stockVideoProvider || 'pexels');
+    setPexelsApiKey(v.pexelsApiKey || '');
+    setPixabayApiKey(v.pixabayApiKey || '');
+    setCoverrApiKey(v.coverrApiKey || '');
     setHistoryStatus(null); setError(''); setHistoryExpanded(false);
     try {
       const res = await fetch(`${API}/api/video/${v.id}/status`);
@@ -249,6 +261,13 @@ export default function Generator() {
     const options = { quality: 'draft', duration, width, height, useAudio, useSubtitles, voiceName };
     if (audioPrompt.trim()) options.audioPrompt = audioPrompt.trim();
     if (useWebsite && url.trim()) options.sourceUrl = url.trim();
+    if (useStockVideo) {
+      options.useStockVideo = true;
+      options.stockVideoProvider = stockVideoProvider;
+      if (stockVideoProvider === 'pexels' && pexelsApiKey.trim()) options.stockVideoApiKey = pexelsApiKey.trim();
+      else if (stockVideoProvider === 'pixabay' && pixabayApiKey.trim()) options.stockVideoApiKey = pixabayApiKey.trim();
+      else if (stockVideoProvider === 'coverr' && coverrApiKey.trim()) options.stockVideoApiKey = coverrApiKey.trim();
+    }
     try {
       const res = await fetch(`${API}/api/video/generate`, {
         method: 'POST',
@@ -258,7 +277,7 @@ export default function Generator() {
       const data = await res.json();
       if (data.error) { setError(data.error); setMode('error'); return; }
       setVideoId(data.videoId);
-      saveToHistory({ id: data.videoId, prompt: text, status: 'generating', duration, width, height, useAudio, useSubtitles, audioPrompt: audioPrompt.trim(), voiceName, useWebsite, sourceUrl: url.trim(), created_at: new Date().toISOString() });
+      saveToHistory({ id: data.videoId, prompt: text, status: 'generating', duration, width, height, useAudio, useSubtitles, audioPrompt: audioPrompt.trim(), voiceName, useWebsite, sourceUrl: url.trim(), created_at: new Date().toISOString(), useStockVideo, stockVideoProvider, pexelsApiKey, pixabayApiKey, coverrApiKey });
       setHistory(loadHistory());
     } catch (err) { setError(err.message); setMode('error'); }
   };
@@ -513,6 +532,55 @@ export default function Generator() {
                   <Subtitles size={16} className={styles.checkIcon} />
                   <span>{t('form.subtitles')}</span>
                 </label>
+
+                <div className={styles.divider} />
+
+                {/* Stock Video */}
+                <label className={styles.checkRow}>
+                  <input type="checkbox" checked={useStockVideo} onChange={e => setUseStockVideo(e.target.checked)} className={styles.checkbox} />
+                  <Film size={16} className={styles.checkIcon} />
+                  <span>{t('form.stock_video')}</span>
+                </label>
+                {useStockVideo && (
+                  <div className={styles.conditionalFields}>
+                    <label className={styles.fieldLabel}>{t('form.stock_provider_label')}</label>
+                    <select value={stockVideoProvider} onChange={e => setStockVideoProvider(e.target.value)} className={styles.select}>
+                      <option value="pexels">Pexels</option>
+                      <option value="pixabay">Pixabay</option>
+                      <option value="coverr">Coverr</option>
+                    </select>
+
+                    {(stockVideoProvider === 'pexels') && (
+                      <>
+                        <label className={styles.fieldLabel}>{t('form.pexels_key_label')}</label>
+                        <input type="password" value={pexelsApiKey} onChange={e => setPexelsApiKey(e.target.value)}
+                          placeholder={t('form.api_key_placeholder')}
+                          className={styles.input}
+                        />
+                      </>
+                    )}
+
+                    {(stockVideoProvider === 'pixabay') && (
+                      <>
+                        <label className={styles.fieldLabel}>{t('form.pixabay_key_label')}</label>
+                        <input type="password" value={pixabayApiKey} onChange={e => setPixabayApiKey(e.target.value)}
+                          placeholder={t('form.api_key_placeholder')}
+                          className={styles.input}
+                        />
+                      </>
+                    )}
+
+                    {(stockVideoProvider === 'coverr') && (
+                      <>
+                        <label className={styles.fieldLabel}>{t('form.coverr_key_label')}</label>
+                        <input type="password" value={coverrApiKey} onChange={e => setCoverrApiKey(e.target.value)}
+                          placeholder={t('form.api_key_placeholder')}
+                          className={styles.input}
+                        />
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 

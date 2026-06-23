@@ -34,6 +34,12 @@
     "website_url_label": "Website URL",
     "website_url_placeholder": "https://example.com",
     "subtitles": "Subtitles",
+    "stock_video": "Use stock video clips on topic",
+    "stock_provider_label": "Stock video provider",
+    "pexels_key_label": "Pexels API Key",
+    "pixabay_key_label": "Pixabay API Key",
+    "coverr_key_label": "Coverr API Key",
+    "api_key_placeholder": "Enter API key",
     "generate": "Generate video",
     "generating": "Generating..."
   },

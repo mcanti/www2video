@@ -34,6 +34,12 @@
     "website_url_label": "URL site",
     "website_url_placeholder": "https://exemplu.ro",
     "subtitles": "Subtitrări",
+    "stock_video": "Folosește clipuri video stock pe subiect",
+    "stock_provider_label": "Provider clipuri stock",
+    "pexels_key_label": "Cheie API Pexels",
+    "pixabay_key_label": "Cheie API Pixabay",
+    "coverr_key_label": "Cheie API Coverr",
+    "api_key_placeholder": "Introdu cheia API",
     "generate": "Generează video",
     "generating": "Se generează..."
   },
