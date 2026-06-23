@@ -4,6 +4,7 @@ import { composeFromPrompt, extractDesignTokens, generateTTS, generateSubtitles 
 import { fetchRenderedDOM, extractBrandTokens } from '../services/website-scraper.js';
 import { getCachedTTS, cacheTTS, initTTSCacheTable } from '../services/tts-cache.js';
 import { rateLimitGenerate } from '../middleware/rateLimit.js';
+import { getEnabledProviders, searchStockVideos, searchAllProviders } from '../services/stock-video.js';
 import path from 'path';
 import fs from 'fs/promises';
 import { existsSync, openSync, readSync, closeSync } from 'fs';
@@ -888,6 +889,43 @@ Return ONLY the tagged text, no explanations. Total: 40-80 cuvinte, minim 3 prop
     } catch {}
   }
 }
+
+// ═══════════════════════════════════════════════════════════
+// Stock Video Search endpoints
+// ═══════════════════════════════════════════════════════════
+
+// GET /api/video/stock/providers — list configured providers
+router.get('/stock/providers', (req, res) => {
+  const providers = getEnabledProviders();
+  res.json({ providers });
+});
+
+// POST /api/video/stock/search — search stock video
+router.post('/stock/search', async (req, res) => {
+  try {
+    const { query, provider: providerId, per_page, min_duration } = req.body;
+    if (!query || !query.trim()) {
+      return res.status(400).json({ error: 'Query is required' });
+    }
+
+    let result;
+    if (providerId && providerId !== 'all') {
+      result = await searchStockVideos(providerId, query.trim(), {
+        perPage: per_page,
+        minDuration: min_duration,
+      });
+    } else {
+      result = await searchAllProviders(query.trim(), {
+        perPage: per_page,
+        minDuration: min_duration,
+      });
+    }
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 export { generateInBackground };
 export default router;
