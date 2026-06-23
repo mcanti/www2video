@@ -59,6 +59,7 @@ function saveToHistory(v) {
     id: v.id, prompt: v.prompt, status: v.status, duration: v.duration || 10,
     width: v.width || 1280, height: v.height || 720, audioPrompt: v.audioPrompt || '',
     useAudio: v.useAudio || false, useSubtitles: v.useSubtitles || false,
+    useStockVideo: v.useStockVideo || false,
     voiceName: v.voiceName || 'Kore', useWebsite: v.useWebsite || false,
     sourceUrl: v.sourceUrl || '', created_at: v.created_at || new Date().toISOString(),
     useStockVideo: v.useStockVideo || false, stockVideoProvider: v.stockVideoProvider || 'pexels',
@@ -128,6 +129,7 @@ const stepGroups = {
   'writing_composition': 2, 'validating': 3, 'lint_warning': 3, 'validated': 3,
   'composition_ready': 3, 'rendering_video': 4, 'finalizing': 5,
   'fetching_website': 0, 'extracting_identity': 1, 'saving_identity': 2,
+  'searching_stock': 1,
   'ready': 6, 'failed': 6,
 };
 
@@ -228,6 +230,7 @@ export default function Generator() {
     setPrompt(v.prompt || '');
     setDuration(v.duration || 10); setWidth(v.width || 1280); setHeight(v.height || 720);
     setUseAudio(v.useAudio || false); setUseSubtitles(v.useSubtitles || false);
+    setUseStockVideo(v.useStockVideo || false);
     setAudioPrompt(v.audioPrompt || ''); setVoiceName(v.voiceName || 'Kore');
     setUseWebsite(v.useWebsite || false); setUrl(v.sourceUrl || '');
     setUseStockVideo(v.useStockVideo || false);
@@ -258,7 +261,7 @@ export default function Generator() {
     const text = prompt.trim();
     if (!text) return;
     setVideoId(null); setMode('generating'); setError(''); setDebugHtml('');
-    const options = { quality: 'draft', duration, width, height, useAudio, useSubtitles, voiceName };
+    const options = { quality: 'draft', duration, width, height, useAudio, useSubtitles, useStockVideo, voiceName };
     if (audioPrompt.trim()) options.audioPrompt = audioPrompt.trim();
     if (useWebsite && url.trim()) options.sourceUrl = url.trim();
     if (useStockVideo) {
@@ -532,7 +535,6 @@ export default function Generator() {
                   <Subtitles size={16} className={styles.checkIcon} />
                   <span>{t('form.subtitles')}</span>
                 </label>
-
                 <div className={styles.divider} />
 
                 {/* Stock Video */}

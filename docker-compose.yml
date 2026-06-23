@@ -8,6 +8,7 @@ services:
     environment:
       - PORT=3017
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - PEXELS_API_KEY=${PEXELS_API_KEY}
       - NODE_ENV=production
       - CHROME_HEADLESS_SHELL_PATH=/usr/local/bin/chrome-headless-shell
       - TTS_SERVICE_ACCOUNT=/app/keys/service-account.json
