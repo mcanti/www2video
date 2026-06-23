@@ -37,6 +37,29 @@ export async function composeFromPrompt(prompt, options = {}) {
     BRAND_LOGO_REL_PATH = options.brandLogoRelPath;
   }
 
+  // Stock video URLs (remote or local relative paths)
+  const stockVideos = options.stockVideos || [];
+
+  // Build video-specific instructions
+  const videoInstructions = stockVideos.length > 0
+    ? `\n## Stock Video Footage — you MUST use the provided video clips as background footage
+- ${stockVideos.length > 1 ? 'Place each video in a different scene' : 'Place the video as a background element in one or more scenes'}
+- Use <video> elements with these attributes:
+  • src="URL" — use the exact URL from the list below
+  • muted — always muted (audio will be handled separately)
+  • loop — loop if the clip is shorter than the scene
+  • style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;"
+- Layer text and graphics ON TOP of the video (z-index:2 over the video at z-index:1)
+- If multiple videos provided, use scene-appropriate ones — match the description
+- If only one video is provided, it can span the entire composition as a continuous background
+- Dim the video slightly (filter:brightness(0.5) or overlay a semi-transparent gradient) so text remains readable
+- Available stock videos:
+${stockVideos.map((v, i) => `  ${i + 1}. src="${v.compositionUrl || v.url}" — ${v.description}`).join('\n')}
+
+|- Format for each video element:
+  <video id="stock-{i}" src="{url}" muted loop style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:1;"></video>`
+    : '\n- NO video elements in the HTML (we add them separately)';
+
   const systemPrompt = `You are a HyperFrames composition expert. Generate ONLY the HTML content for a video composition.
 
 IMPORTANT — You MUST follow the HyperFrames pattern EXACTLY:
@@ -73,11 +96,11 @@ IMPORTANT — You MUST follow the HyperFrames pattern EXACTLY:
 - Every clip has: id, class="clip", data-start, data-duration, data-track-index
 - Root has: id="root", data-composition-id="main", data-width="${width}", data-height="${height}", data-duration
 - position: absolute; inset: 0 on every scene clip section
-- Output ONLY the complete HTML starting with <!DOCTYPE html>, ending with </html>
-- NO markdown fences, NO backticks, NO explanations, NO code blocks
-- NO audio or video elements in the HTML (we add them separately)
-- NOTĂ: Watermark-ul logo al aplicației e adăugat automat de sistem — NU include watermark-ul aplicației în HTML
-- Dacă primești un logo al site-ului/clientului (brand logo), îl poți include ca element vizual în compoziție (ex: în colț, în ultima scenă, ca element decorativ)
+|- Output ONLY the complete HTML starting with <!DOCTYPE html>, ending with </html>
+|- NO markdown fences, NO backticks, NO explanations, NO code blocks
+${videoInstructions}
+|- NOTĂ: Watermark-ul logo al aplicației e adăugat automat de sistem — NU include watermark-ul aplicației în HTML
+|- Dacă primești un logo al site-ului/clientului (brand logo), îl poți include ca element vizual în compoziție (ex: în colț, în ultima scenă, ca element decorativ)
 `;
 
   const userPrompt = `Create a ${duration}-second video composition for: ${prompt}

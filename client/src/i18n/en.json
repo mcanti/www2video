@@ -34,6 +34,7 @@
     "website_url_label": "Website URL",
     "website_url_placeholder": "https://example.com",
     "subtitles": "Subtitles",
+    "stock_video": "Stock background video",
     "generate": "Generate video",
     "generating": "Generating..."
   },

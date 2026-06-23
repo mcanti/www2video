@@ -7,7 +7,7 @@ import {
   Sparkles, Settings, Play, Pause, RotateCcw, Download, Copy, Check,
   X, ChevronDown, Clock, Bug, Maximize2, ExternalLink, Trash2,
   Volume2, Subtitles, Globe, Languages, Loader, AlertCircle,
-  CheckCircle, Eye, Plus, FileText, Monitor,
+  CheckCircle, Eye, Plus, FileText, Monitor, Film,
 } from 'lucide-react';
 
 const API = '';
@@ -59,6 +59,7 @@ function saveToHistory(v) {
     id: v.id, prompt: v.prompt, status: v.status, duration: v.duration || 10,
     width: v.width || 1280, height: v.height || 720, audioPrompt: v.audioPrompt || '',
     useAudio: v.useAudio || false, useSubtitles: v.useSubtitles || false,
+    useStockVideo: v.useStockVideo || false,
     voiceName: v.voiceName || 'Kore', useWebsite: v.useWebsite || false,
     sourceUrl: v.sourceUrl || '', created_at: v.created_at || new Date().toISOString(),
   });
@@ -126,6 +127,7 @@ const stepGroups = {
   'writing_composition': 2, 'validating': 3, 'lint_warning': 3, 'validated': 3,
   'composition_ready': 3, 'rendering_video': 4, 'finalizing': 5,
   'fetching_website': 0, 'extracting_identity': 1, 'saving_identity': 2,
+  'searching_stock': 1,
   'ready': 6, 'failed': 6,
 };
 
@@ -152,6 +154,7 @@ export default function Generator() {
   const [useWebsite, setUseWebsite] = useState(false);
   const [useAudio, setUseAudio] = useState(false);
   const [useSubtitles, setUseSubtitles] = useState(false);
+  const [useStockVideo, setUseStockVideo] = useState(false);
   const [audioPrompt, setAudioPrompt] = useState('');
   const [voiceName, setVoiceName] = useState('Kore');
   const [videoId, setVideoId] = useState(null);
@@ -221,6 +224,7 @@ export default function Generator() {
     setPrompt(v.prompt || '');
     setDuration(v.duration || 10); setWidth(v.width || 1280); setHeight(v.height || 720);
     setUseAudio(v.useAudio || false); setUseSubtitles(v.useSubtitles || false);
+    setUseStockVideo(v.useStockVideo || false);
     setAudioPrompt(v.audioPrompt || ''); setVoiceName(v.voiceName || 'Kore');
     setUseWebsite(v.useWebsite || false); setUrl(v.sourceUrl || '');
     setHistoryStatus(null); setError(''); setHistoryExpanded(false);
@@ -246,7 +250,7 @@ export default function Generator() {
     const text = prompt.trim();
     if (!text) return;
     setVideoId(null); setMode('generating'); setError(''); setDebugHtml('');
-    const options = { quality: 'draft', duration, width, height, useAudio, useSubtitles, voiceName };
+    const options = { quality: 'draft', duration, width, height, useAudio, useSubtitles, useStockVideo, voiceName };
     if (audioPrompt.trim()) options.audioPrompt = audioPrompt.trim();
     if (useWebsite && url.trim()) options.sourceUrl = url.trim();
     try {
@@ -258,7 +262,7 @@ export default function Generator() {
       const data = await res.json();
       if (data.error) { setError(data.error); setMode('error'); return; }
       setVideoId(data.videoId);
-      saveToHistory({ id: data.videoId, prompt: text, status: 'generating', duration, width, height, useAudio, useSubtitles, audioPrompt: audioPrompt.trim(), voiceName, useWebsite, sourceUrl: url.trim(), created_at: new Date().toISOString() });
+      saveToHistory({ id: data.videoId, prompt: text, status: 'generating', duration, width, height, useAudio, useSubtitles, useStockVideo, audioPrompt: audioPrompt.trim(), voiceName, useWebsite, sourceUrl: url.trim(), created_at: new Date().toISOString() });
       setHistory(loadHistory());
     } catch (err) { setError(err.message); setMode('error'); }
   };
@@ -512,6 +516,13 @@ export default function Generator() {
                   <input type="checkbox" checked={useSubtitles} onChange={e => setUseSubtitles(e.target.checked)} className={styles.checkbox} />
                   <Subtitles size={16} className={styles.checkIcon} />
                   <span>{t('form.subtitles')}</span>
+                </label>
+
+                {/* Stock Video */}
+                <label className={styles.checkRow}>
+                  <input type="checkbox" checked={useStockVideo} onChange={e => setUseStockVideo(e.target.checked)} className={styles.checkbox} />
+                  <Film size={16} className={styles.checkIcon} />
+                  <span>{t('form.stock_video')}</span>
                 </label>
               </div>
             )}

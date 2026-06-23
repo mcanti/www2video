@@ -591,12 +591,40 @@ async function generateInBackground(videoId, prompt, options) {
     await engine.init('blank');
     await updateProgress(videoId, 'composition_ai', '🤖 Conținut generat cu AI', 15);
 
+    // ── Stock video search (optional) ──
+    let stockVideos = [];
+    if (options.useStockVideo) {
+      await updateProgress(videoId, 'searching_stock', '🎬 Se caută videouri stock...', 12);
+      try {
+        const { findStockVideos } = await import('../services/stock-video.js');
+        const stockDir = path.join(workDir, 'stock');
+        const narrationForTerms = narrationText || audioPrompt || '';
+        const result = await findStockVideos(enrichedPrompt, narrationForTerms, {
+          maxVideos: 3,
+          download: true,
+          downloadDir: stockDir,
+        });
+        stockVideos = result.videos;
+        if (stockVideos.length > 0) {
+          console.log(`[generate] Found ${stockVideos.length} stock videos for composition`);
+          await updateDebug(videoId, { stock_videos_found: stockVideos.length, stock_terms: null });
+        } else {
+          console.log('[generate] No stock videos found, continuing without');
+          await updateDebug(videoId, { stock_videos_found: 0 });
+        }
+      } catch (e) {
+        console.warn('[generate] Stock video search failed (non-fatal):', e.message);
+        await updateDebug(videoId, { stock_video_error: e.message });
+      }
+    }
+
     const compositionOptions = { ...options, duration };
     if (brandColors) compositionOptions.brandColors = brandColors;
     if (brandFonts) compositionOptions.brandFonts = brandFonts;
     if (websiteName) compositionOptions.websiteName = websiteName;
     if (themeColor) compositionOptions.themeColor = themeColor;
     if (brandLogoPath) compositionOptions.brandLogoRelPath = 'assets/logo-site.png';
+    if (stockVideos.length > 0) compositionOptions.stockVideos = stockVideos;
 
     const html = await composeFromPrompt(enrichedPrompt, compositionOptions);
     await updateDebug(videoId, { composition_html: html.substring(0, 5000) });
