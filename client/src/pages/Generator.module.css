@@ -197,6 +197,97 @@
   margin-left: 24px; margin-top: var(--space-2);
 }
 
+/* ---- Help Text (stock providers) ---- */
+.helpText {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  line-height: var(--leading-normal);
+}
+
+/* ---- Stock Search Section ---- */
+.stockSearchSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.stockSearchRow {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.stockSearchRow .input {
+  flex: 1;
+}
+
+.stockResultsBox {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 4px;
+}
+
+.stockResultItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.1s var(--ease-out);
+}
+
+.stockResultItem:hover { background: var(--accent-subtle); }
+
+.stockResultSelected {
+  background: var(--accent-subtle);
+  border: 1px solid var(--accent);
+}
+
+.stockThumb {
+  width: 60px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+.stockResultInfo {
+  flex: 1;
+  display: flex;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  align-items: center;
+}
+
+.stockResultDuration {
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+
+.stockResultRes { color: var(--text-tertiary); }
+
+.stockResultUser { color: var(--text-tertiary); margin-left: auto; }
+
+.stockRadio {
+  width: 14px; height: 14px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.stockError {
+  font-size: var(--text-xs);
+  color: var(--error);
+  padding: 4px 0;
+}
+
 /* ---- Divider ---- */
 .divider { height: 1px; background: var(--border); opacity: 0.5; }
 

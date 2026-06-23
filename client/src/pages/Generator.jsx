@@ -170,6 +170,16 @@ export default function Generator() {
   const [playerReady, setPlayerReady] = useState(false);
   const [playerDuration, setPlayerDuration] = useState(0);
 
+  /* ---- Stock video state ---- */
+  const [useStockVideo, setUseStockVideo] = useState(false);
+  const [stockProvider, setStockProvider] = useState('pexels');
+  const [stockApiKeys, setStockApiKeys] = useState({});
+  const [stockSearchQuery, setStockSearchQuery] = useState('');
+  const [stockSearchResults, setStockSearchResults] = useState([]);
+  const [stockSearchError, setStockSearchError] = useState('');
+  const [stockSearching, setStockSearching] = useState(false);
+  const [selectedStockUrl, setSelectedStockUrl] = useState('');
+
   /* ---- Video custom controls ---- */
   const [videoPlaying, setVideoPlaying] = useState(false);
   const [videoCurrentTime, setVideoCurrentTime] = useState(0);
@@ -223,6 +233,8 @@ export default function Generator() {
     setUseAudio(v.useAudio || false); setUseSubtitles(v.useSubtitles || false);
     setAudioPrompt(v.audioPrompt || ''); setVoiceName(v.voiceName || 'Kore');
     setUseWebsite(v.useWebsite || false); setUrl(v.sourceUrl || '');
+    setUseStockVideo(v.useStockVideo || false); setStockProvider(v.stockProvider || 'pexels');
+    setStockSearchQuery(v.stockSearchQuery || ''); setSelectedStockUrl(v.selectedStockUrl || '');
     setHistoryStatus(null); setError(''); setHistoryExpanded(false);
     try {
       const res = await fetch(`${API}/api/video/${v.id}/status`);
@@ -241,6 +253,41 @@ export default function Generator() {
     setHistory(loadHistory());
   };
 
+  /* ---- Stock video search ---- */
+  const handleStockSearch = async () => {
+    const q = stockSearchQuery.trim();
+    if (!q) return;
+    setStockSearching(true);
+    setStockSearchError('');
+    setStockSearchResults([]);
+    try {
+      const res = await fetch(`${API}/api/video/stock/search`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: q,
+          provider: stockProvider,
+          per_page: 15,
+          min_duration: 3,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setStockSearchError(data.error);
+      } else if (data.items && data.items.length > 0) {
+        setStockSearchResults(data.items);
+        // Auto-select first result
+        setSelectedStockUrl(data.items[0].url);
+      } else {
+        setStockSearchError(t('form.stock_no_results'));
+      }
+    } catch (err) {
+      setStockSearchError(err.message);
+    } finally {
+      setStockSearching(false);
+    }
+  };
+
   /* ---- Generate ---- */
   const handleGenerate = async () => {
     const text = prompt.trim();
@@ -249,6 +296,10 @@ export default function Generator() {
     const options = { quality: 'draft', duration, width, height, useAudio, useSubtitles, voiceName };
     if (audioPrompt.trim()) options.audioPrompt = audioPrompt.trim();
     if (useWebsite && url.trim()) options.sourceUrl = url.trim();
+    if (useStockVideo && selectedStockUrl) {
+      options.stockVideoUrl = selectedStockUrl;
+      options.stockProvider = stockProvider;
+    }
     try {
       const res = await fetch(`${API}/api/video/generate`, {
         method: 'POST',
@@ -258,7 +309,7 @@ export default function Generator() {
       const data = await res.json();
       if (data.error) { setError(data.error); setMode('error'); return; }
       setVideoId(data.videoId);
-      saveToHistory({ id: data.videoId, prompt: text, status: 'generating', duration, width, height, useAudio, useSubtitles, audioPrompt: audioPrompt.trim(), voiceName, useWebsite, sourceUrl: url.trim(), created_at: new Date().toISOString() });
+      saveToHistory({ id: data.videoId, prompt: text, status: 'generating', duration, width, height, useAudio, useSubtitles, audioPrompt: audioPrompt.trim(), voiceName, useWebsite, sourceUrl: url.trim(), useStockVideo, stockProvider, stockSearchQuery: stockSearchQuery.trim(), selectedStockUrl, created_at: new Date().toISOString() });
       setHistory(loadHistory());
     } catch (err) { setError(err.message); setMode('error'); }
   };
@@ -513,6 +564,87 @@ export default function Generator() {
                   <Subtitles size={16} className={styles.checkIcon} />
                   <span>{t('form.subtitles')}</span>
                 </label>
+
+                <div className={styles.divider} />
+
+                {/* Stock Video */}
+                <label className={styles.checkRow}>
+                  <input type="checkbox" checked={useStockVideo} onChange={e => setUseStockVideo(e.target.checked)} className={styles.checkbox} />
+                  <Monitor size={16} className={styles.checkIcon} />
+                  <span>{t('form.stock_video')}</span>
+                </label>
+                {useStockVideo && (
+                  <div className={styles.conditionalFields}>
+                    <label className={styles.fieldLabel}>{t('form.stock_provider_label')}</label>
+                    <select value={stockProvider} onChange={e => setStockProvider(e.target.value)} className={styles.select}>
+                      <option value="pexels">Pexels</option>
+                      <option value="pixabay">Pixabay</option>
+                      <option value="coverr">Coverr</option>
+                    </select>
+                    <label className={styles.fieldLabel}>{t('form.stock_api_key_label')}</label>
+                    <input type="password" value={stockApiKeys[stockProvider] || ''}
+                      onChange={e => setStockApiKeys(prev => ({ ...prev, [stockProvider]: e.target.value }))}
+                      placeholder={t('form.stock_api_key_placeholder')}
+                      className={styles.input}
+                    />
+                    {stockProvider === 'pixabay' && (
+                      <span className={styles.helpText}>{t('form.stock_pixabay_hint')}</span>
+                    )}
+                    {stockProvider === 'coverr' && (
+                      <span className={styles.helpText}>{t('form.stock_coverr_hint')}</span>
+                    )}
+                    {stockProvider === 'pexels' && (
+                      <span className={styles.helpText}>{t('form.stock_pexels_hint')}</span>
+                    )}
+                  </div>
+                )}
+
+                <div className={styles.divider} />
+
+                {/* Stock Video search (visible when stock video is enabled) */}
+                {useStockVideo && (
+                  <div className={styles.stockSearchSection}>
+                    <label className={styles.fieldLabel}>{t('form.stock_search_label')}</label>
+                    <div className={styles.stockSearchRow}>
+                      <input type="text" value={stockSearchQuery}
+                        onChange={e => setStockSearchQuery(e.target.value)}
+                        placeholder={t('form.stock_search_placeholder')}
+                        className={styles.input}
+                        onKeyDown={e => { if (e.key === 'Enter') handleStockSearch(); }}
+                      />
+                      <button onClick={handleStockSearch} disabled={stockSearching || !stockSearchQuery.trim()}
+                        className={styles.btnOutlineSm}>
+                        {stockSearching ? t('form.searching') : t('form.search')}
+                      </button>
+                    </div>
+                    {stockSearchResults.length > 0 && (
+                      <div className={styles.stockResultsBox}>
+                        {stockSearchResults.map((item, idx) => (
+                          <div key={idx}
+                            className={`${styles.stockResultItem} ${selectedStockUrl === item.url ? styles.stockResultSelected : ''}`}
+                            onClick={() => setSelectedStockUrl(item.url)}
+                          >
+                            {item.thumbnail && (
+                              <img src={item.thumbnail} alt="" className={styles.stockThumb} />
+                            )}
+                            <div className={styles.stockResultInfo}>
+                              <span className={styles.stockResultDuration}>{item.duration}s</span>
+                              <span className={styles.stockResultRes}>{item.width}×{item.height}</span>
+                              {item.user && <span className={styles.stockResultUser}>© {item.user}</span>}
+                            </div>
+                            <input type="radio" checked={selectedStockUrl === item.url}
+                              onChange={() => setSelectedStockUrl(item.url)}
+                              className={styles.stockRadio}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {stockSearchError && (
+                      <span className={styles.stockError}>{stockSearchError}</span>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
